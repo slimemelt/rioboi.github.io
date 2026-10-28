@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rio</title>
+<meta name="description" content="hi, i'm rio. tv channels, design, music.">
+<meta name="theme-color" content="#000000">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=K2D:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --blue: #00a1f5;
+  --green: #45f46e;
+  --gap: 4px;
+  --pad: clamp(1.25rem, 6.1vw, 2.7rem);
+  --body: clamp(1rem, 2.9vw, 1.28rem);
+  --display: clamp(2.5rem, 9vw, 3.9rem);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html {
+  min-height: 100%;
+  background: linear-gradient(#000 0 58%, var(--blue) 84%, var(--green));
+  background-attachment: fixed;
+}
+body {
+  margin: 0;
+  color: #fff;
+  font: 400 var(--body)/1.22 "K2D", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--blue); color: #000; }
+img { display: block; max-width: 100%; height: auto; }
+p { margin: 0; }
+
+.col {
+  container-type: inline-size;
+  max-width: 44rem;
+  margin: 0 auto;
+  background: #fff;
+  padding: 0 var(--gap) var(--gap);
+  display: grid;
+  gap: var(--gap);
+}
+.card { background: #000; padding: 1.15rem var(--pad); position: relative; }
+
+.hero { margin: 0 calc(var(--gap) * -1); background: #fff; }
+
+a { color: inherit; text-underline-offset: .14em; text-decoration-thickness: .06em; }
+a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+
+.links { padding-block: 1.9rem; font-size: clamp(1.15rem, 3.8vw, 1.6rem); font-weight: 300; }
+.links a { text-decoration-thickness: .05em; }
+.links span { padding: 0 .35em; }
+
+.about { padding-block: 1.6rem 2rem; min-height: 11.5rem; }
+.about p { max-width: 24em; }
+.about .flag { position: absolute; top: 1.4rem; right: 1.6rem; width: 11%; image-rendering: pixelated; }
+
+.rule {
+  --c: var(--blue);
+  margin: 0;
+  background: #fff;
+  color: var(--c);
+  border: var(--gap) solid var(--c);
+  padding: .35rem var(--pad) .3rem;
+  font: 400 var(--display)/1 "K2D", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -.005em;
+  position: relative; z-index: 1;
+}
+.rule.green { --c: var(--green); }
+.rule img {
+  position: absolute; right: calc(var(--gap) * -1); bottom: -15px;
+  width: 44%; pointer-events: none;
+}
+
+.item h3 {
+  margin: 0 0 .1em;
+  font: 300 var(--display)/1 "K2D", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -.005em;
+}
+.item p { max-width: 28em; }
+.item small { display: block; margin-top: 1rem; font-size: .62em; }
+.item .go {
+  --c: var(--blue);
+  display: inline-block; margin-top: .1rem;
+  color: var(--c); font-weight: 700; font-size: .95em;
+}
+.item .go.green { --c: var(--green); }
+.item .go:hover { background: var(--c); color: #000; text-decoration-color: transparent; }
+.item .art { position: absolute; right: 1.2rem; bottom: 1rem; }
+
+.sign { padding-block: 1.9rem 2.2rem; }
+.sign b { color: var(--blue); font-weight: 700; }
+
+.end { background: #000; padding: 20.1cqw 0 0; overflow: hidden; min-height: max(51.1cqw, 15rem); }
+.end .rule { background: transparent; border-right: 0; margin: 0; text-transform: none; }
+.end .small { position: absolute; left: 0; bottom: 0; padding: 0 var(--pad) 2rem; font-size: clamp(.8rem, 2.2vw, .95rem); max-width: 62%; }
+.end .char { position: absolute; right: 0; top: 17.1cqw; width: 41.8cqw; }
+
+@media (max-width: 30rem) {
+  .about .flag { width: 15%; }
+  .item .art { right: .8rem; bottom: .8rem; }
+}
+</style>
+</head>
+<body>
+<main class="col">
+
+  <img class="hero" src="img/header.png" width="1400" height="567" alt="hi, i'm rio 2026 — handwritten, next to a drawing of a dark-haired boy peeking in">
+
+  <nav class="card links" aria-label="elsewhere">
+    <a href="https://youtube.com/@slimemelt">youtube</a><span>-</span><a href="https://bloomnetworks.net">bloom</a><span>-</span><a href="https://plink.social/user/rio/?posts-p=1">plink</a><span>-</span><a href="https://open.spotify.com/track/73CKjW3vsUXRpy3NnX4H7F">fav song rn</a>
+  </nav>
+
+  <section class="card about">
+    <p>welcome to my site!<br>
+    here’s some things about me:<br>
+    i go by he/they, i like music, design, and vr games<br>
+    i also like tv channels and actually have my own 👀<br>
+    come check out my things below!</p>
+    <img class="flag" src="img/flag.png" width="155" height="202" alt="demiboy pride flag">
+  </section>
+
+  <h2 class="rule">projects<img src="img/heads.png" width="670" height="205" alt=""></h2>
+
+  <article class="card item">
+    <h3>yeeps channel</h3>
+    <p>yeeps channel is a tv network all about my favorite game yeeps for the community, by the community :D</p>
+    <small>(2025-now)</small>
+    <a class="go" href="https://watch.mistlive.tv">watch</a>
+    <img class="art" src="img/yeeps.png" width="362" height="125" style="width:25.9%" alt="four yeeps: blue, green, orange, pink">
+  </article>
+
+  <article class="card item">
+    <h3>butterfly</h3>
+    <p>tv network for the family!! a thing i’m working on, i’ll show more about it soon 👀</p>
+    <small>soon</small>
+    <a class="go" href="#" aria-disabled="true">no you’re not watching yet</a>
+    <img class="art" src="img/butterfly.png" width="213" height="183" style="width:15.2%" alt="a blue-green butterfly">
+  </article>
+
+  <h2 class="rule green">things i work on</h2>
+
+  <article class="card item">
+    <h3>mist live</h3>
+    <p>tv streaming service that i moderate for, come check it out 👀<br>(yeeps channel is also on here)</p>
+    <small>(now)</small>
+    <a class="go green" href="https://mistlive.tv">watch</a>
+  </article>
+
+  <article class="card item">
+    <h3>yeeps</h3>
+    <p>i review applications and beta test for the game<br>pretty fun tbh</p>
+    <small>(2024-now)</small>
+    <a class="go green" href="https://yeeps.com">come play</a>
+  </article>
+
+  <section class="card sign">
+    <p>that’s basically all i can give for now, more soon!!<br>
+    wanna talk? add me on discord at <b>@slimemelt</b> and i <em>might</em> respond, im busy 😢<br>
+    anyways…</p>
+  </section>
+
+  <footer class="card end">
+    <h2 class="rule">tha nk s :D</h2>
+    <p class="small">coolest demiboy in town :D<br>
+    wanna talk? dm me on discord @slimemelt or <a href="mailto:hiya@rioboi.wtf">hiya@rioboi.wtf</a><br>
+    yay</p>
+    <img class="char" src="img/thanks.png" width="585" height="477" alt="">
+  </footer>
+
+</main>
+</body>
+</html>
