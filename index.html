@@ -14,18 +14,21 @@
   --blue: #00a1f5;
   --green: #45f46e;
   --gap: 4px;
-  --pad: clamp(1.25rem, 6.1vw, 2.7rem);
-  --body: clamp(1rem, 2.9vw, 1.28rem);
-  --display: clamp(2.5rem, 9vw, 3.9rem);
+  --w: min(100vw, 30rem);
+  --u: calc(var(--w) / 100);
+  --pad: calc(var(--u) * 6.1);
+  --body: clamp(.95rem, calc(var(--u) * 3.2), 1.25rem);
+  --display: clamp(2.3rem, calc(var(--u) * 8.2), 3.4rem);
 }
 *, *::before, *::after { box-sizing: border-box; }
 html {
   min-height: 100%;
-  background: linear-gradient(#000 0 58%, var(--blue) 84%, var(--green));
-  background-attachment: fixed;
+  overflow-y: auto;
+  background: linear-gradient(#000 0 64%, var(--blue) 86%, var(--green));
 }
 body {
   margin: 0;
+  min-height: 100vh;
   color: #fff;
   font: 400 var(--body)/1.22 "K2D", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -35,8 +38,7 @@ img { display: block; max-width: 100%; height: auto; }
 p { margin: 0; }
 
 .col {
-  container-type: inline-size;
-  max-width: 44rem;
+  width: var(--w);
   margin: 0 auto;
   background: #fff;
   padding: 0 var(--gap) var(--gap);
@@ -50,12 +52,12 @@ p { margin: 0; }
 a { color: inherit; text-underline-offset: .14em; text-decoration-thickness: .06em; }
 a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 
-.links { padding-block: 1.9rem; font-size: clamp(1.15rem, 3.8vw, 1.6rem); font-weight: 300; }
+.links { padding-block: 1.9rem; font-size: clamp(1rem, calc(var(--u) * 4.3), 1.5rem); font-weight: 300; }
 .links a { text-decoration-thickness: .05em; }
 .links span { padding: 0 .35em; }
 
 .about { padding-block: 1.6rem 2rem; min-height: 11.5rem; }
-.about p { max-width: 24em; }
+.about { padding-right: 22%; }
 .about .flag { position: absolute; top: 1.4rem; right: 1.6rem; width: 11%; image-rendering: pixelated; }
 
 .rule {
@@ -96,10 +98,10 @@ a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 .sign { padding-block: 1.9rem 2.2rem; }
 .sign b { color: var(--blue); font-weight: 700; }
 
-.end { background: #000; padding: 20.1cqw 0 0; overflow: hidden; min-height: max(51.1cqw, 15rem); }
+.end { background: #000; padding: calc(var(--u) * 20.1) 0 0; overflow: hidden; height: calc(var(--u) * 51.2); }
 .end .rule { background: transparent; border-right: 0; margin: 0; text-transform: none; }
-.end .small { position: absolute; left: 0; bottom: 0; padding: 0 var(--pad) 2rem; font-size: clamp(.8rem, 2.2vw, .95rem); max-width: 62%; }
-.end .char { position: absolute; right: 0; top: 17.1cqw; width: 41.8cqw; }
+.end .small { position: absolute; left: 0; bottom: 0; padding: 0 var(--pad) 1rem; font-size: clamp(.7rem, calc(var(--u) * 2.2), .85rem); line-height: 1.2; max-width: 62%; }
+.end .char { position: absolute; right: 0; top: calc(var(--u) * 17.1); width: calc(var(--u) * 41.8); }
 
 @media (max-width: 30rem) {
   .about .flag { width: 15%; }
