@@ -32,7 +32,7 @@
   --u: calc(var(--w) / 100);
   --pad: calc(var(--u) * 6.1);
   --body: clamp(.95rem, calc(var(--u) * 3.2), 1.25rem);
-  --display: clamp(2.3rem, calc(var(--u) * 8.2), 3.4rem);
+  --display: clamp(1.9rem, calc(var(--u) * 8.2), 3.4rem);
 }
 *, *::before, *::after { box-sizing: border-box; }
 html {
@@ -117,12 +117,16 @@ a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 
 .end { background: #000; padding: calc(var(--u) * 20.1) 0 0; overflow: hidden; height: calc(var(--u) * 51.2); }
 .end .rule { background: transparent; border-right: 0; margin: 0; text-transform: none; }
-.end .small { position: absolute; left: 0; bottom: 0; padding: 0 var(--pad) 1rem; font-size: clamp(.7rem, calc(var(--u) * 2.2), .85rem); line-height: 1.2; max-width: 62%; }
+.end .small { position: absolute; left: 0; bottom: 0; padding: 0 0 clamp(.45rem, calc(var(--u) * 2), 1rem) var(--pad); font-size: clamp(.66rem, calc(var(--u) * 2.7), .85rem); line-height: 1.2; max-width: 63%; }
 .end .char { position: absolute; right: 0; top: calc(var(--u) * 17.1); width: calc(var(--u) * 41.8); }
 
 @media (max-width: 30rem) {
   .about .flag { width: 15%; }
   .item .art { right: .8rem; bottom: .8rem; }
+}
+@media (max-width: 22.5rem) {
+  .end { height: auto; min-height: calc(var(--u) * 51.2); }
+  .end .small { position: static; padding: .7rem 0 .8rem var(--pad); max-width: 56%; font-size: .64rem; }
 }
 </style>
 </head>
