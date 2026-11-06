@@ -43,6 +43,7 @@ a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 
 .links { padding-block: 1.9rem; font-size: clamp(1rem, calc(var(--u) * 4.3), 1.5rem); font-weight: 300; }
 .links a { text-decoration-thickness: .05em; }
+.links a { white-space: nowrap; }
 .links span { padding: 0 .35em; }
 
 .about { padding-block: 1.6rem 2rem; min-height: 11.5rem; }
