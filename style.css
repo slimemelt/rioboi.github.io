@@ -1,0 +1,112 @@
+:root {
+  --blue: #00a1f5;
+  --green: #45f46e;
+  --gap: 4px;
+  --w: min(100vw, 30rem);
+  --u: calc(var(--w) / 100);
+  --pad: calc(var(--u) * 6.1);
+  --body: clamp(.95rem, calc(var(--u) * 3.2), 1.25rem);
+  --display: clamp(1.9rem, calc(var(--u) * 8.2), 3.4rem);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html {
+  min-height: 100%;
+  overflow-y: auto;
+  background: linear-gradient(#000 0 64%, var(--blue) 86%, var(--green));
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: #fff;
+  font: 400 var(--body)/1.22 "K2D", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--blue); color: #000; }
+img { display: block; max-width: 100%; height: auto; }
+p { margin: 0; }
+
+.col {
+  width: var(--w);
+  margin: 0 auto;
+  background: #fff;
+  padding: 0 var(--gap) var(--gap);
+  display: grid;
+  gap: var(--gap);
+}
+.card { background: #000; padding: 1.15rem var(--pad); position: relative; }
+
+.hero { margin: 0 calc(var(--gap) * -1); background: #fff; font: inherit; }
+.hero img { width: 100%; }
+
+a { color: inherit; text-underline-offset: .14em; text-decoration-thickness: .06em; }
+a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+
+.links { padding-block: 1.9rem; font-size: clamp(1rem, calc(var(--u) * 4.3), 1.5rem); font-weight: 300; }
+.links a { text-decoration-thickness: .05em; }
+.links span { padding: 0 .35em; }
+
+.about { padding-block: 1.6rem 2rem; min-height: 11.5rem; }
+.about { padding-right: 22%; }
+.about .flag { position: absolute; top: 1.4rem; right: 1.6rem; width: 11%; }
+
+.rule {
+  --c: var(--blue);
+  margin: 0;
+  background: #fff;
+  color: var(--c);
+  border: var(--gap) solid var(--c);
+  padding: .35rem var(--pad) .3rem;
+  font: 400 var(--display)/1 "K2D", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -.005em;
+  position: relative; z-index: 1;
+}
+.rule.green { --c: var(--green); }
+.rule img {
+  position: absolute; right: 1.6%; bottom: calc(var(--u) * -4.5 - 4px);
+  width: 46.8%; pointer-events: none;
+}
+
+.item h3 {
+  margin: 0 0 .1em;
+  font: 300 var(--display)/1 "K2D", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -.005em;
+}
+.item p { max-width: 28em; }
+.item small { display: block; margin-top: 1rem; font-size: .62em; }
+.item .go {
+  --c: var(--blue);
+  display: inline-block; margin-top: .1rem;
+  color: var(--c); font-weight: 700; font-size: .95em;
+}
+.item .go.green { --c: var(--green); }
+.item .go:hover { background: var(--c); color: #000; text-decoration-color: transparent; }
+.item .off { display: inline-block; margin-top: .1rem; color: var(--blue); font-weight: 700; font-size: .95em; }
+.emoji { display: inline-block; height: 1.05em; width: auto; vertical-align: -.2em; margin-left: .08em; }
+.item .art { position: absolute; right: 1.2rem; bottom: 1rem; }
+
+.sign { padding-block: 1.9rem 2.2rem; }
+.sign b { color: var(--blue); font-weight: 700; }
+
+.end { background: #000; padding: calc(var(--u) * 20.1) 0 0; overflow: hidden; height: calc(var(--u) * 51.2); }
+.end .rule { background: transparent; border-right: 0; margin: 0; text-transform: none; }
+.end .small { position: absolute; left: 0; bottom: 0; padding: 0 0 clamp(.45rem, calc(var(--u) * 2), 1rem) var(--pad); font-size: clamp(.66rem, calc(var(--u) * 2.7), .85rem); line-height: 1.2; max-width: 63%; }
+.end .char { position: absolute; right: 0; top: calc(var(--u) * 17.1); width: calc(var(--u) * 41.8); }
+
+@media (max-width: 30rem) {
+  .about .flag { width: 15%; }
+  .item .art { right: .8rem; bottom: .8rem; }
+}
+@media (max-width: 22.5rem) {
+  .end { height: auto; min-height: calc(var(--u) * 51.2); }
+  .end .small { position: static; padding: .7rem 0 .8rem var(--pad); max-width: 56%; font-size: .64rem; }
+}
+
+.about .more { display: block; margin-top: .9rem; color: var(--blue); font-weight: 700; }
+.about .more:hover { background: var(--blue); color: #000; text-decoration-color: transparent; }
+.back { padding-block: 1.2rem; font-size: clamp(1rem, calc(var(--u) * 4.3), 1.5rem); font-weight: 300; }
+.item .flagside { position: absolute; top: 1.2rem; right: 1.6rem; width: 11%; }
+.item ul { margin: .5rem 0 0; padding: 0; list-style: none; }
+.item li { margin: .15em 0; }
+.item li a { color: var(--c, var(--blue)); font-weight: 700; }
