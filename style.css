@@ -111,3 +111,20 @@ a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 .item ul { margin: .5rem 0 0; padding: 0; list-style: none; }
 .item li { margin: .15em 0; }
 .item li a { color: var(--c, var(--blue)); font-weight: 700; }
+
+/* john mist page */
+html.john { background: #000 url(img/john.png) 0 46.4% / 100% 241.8% no-repeat fixed; }
+.col.dark { background: #000; padding: 0; gap: 0; }
+.jhero { position: relative; aspect-ratio: 7056 / 2918; background: url(img/john.png) 0 calc(var(--u) * -27.2) / 100% auto no-repeat; color: #fff; margin: 0; font-weight: 400; line-height: 1; }
+.jhero span { position: absolute; font-size: clamp(1.5rem, calc(var(--u) * 6.6), 2.8rem); transform: translateY(-50%); }
+.jhero .a { left: 20.8%; top: 37%; }
+.jhero .b { left: 46.9%; top: 65%; text-transform: uppercase; }
+.jtext { padding: calc(var(--u) * 6.5) var(--pad) 0; }
+.jtext .home { display: inline-block; margin-top: calc(var(--u) * 8); }
+.jstrip { margin: calc(var(--u) * 68) var(--gap) var(--gap); border: var(--gap) solid #ffebc7; color: #000; background: url(img/john.png) 0 calc(var(--u) * -7.54) / 100% calc(var(--u) * 27.7) no-repeat; padding: .35rem var(--pad) .3rem; font: 400 var(--display)/1 "K2D", sans-serif; text-transform: uppercase; margin-bottom: var(--gap); }
+.jcard { margin: 0 var(--gap); border: var(--gap) solid #fff; background: #000; padding: 1.15rem var(--pad) 1.5rem; }
+.jcard h3 { margin: 0 0 .1em; font: 300 var(--display)/1 "K2D", sans-serif; text-transform: uppercase; }
+.jcard small { display: block; margin-top: 1rem; font-size: .62em; }
+.jcard .go { color: var(--green); font-weight: 700; font-size: .95em; }
+.jcard .go:hover { background: var(--green); color: #000; text-decoration-color: transparent; }
+.jfoot { margin-top: calc(var(--u) * 66); padding: 0 var(--pad) 1.4rem; font-size: clamp(.8rem, calc(var(--u) * 3), 1rem); line-height: 1.25; }
