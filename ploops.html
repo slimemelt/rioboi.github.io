@@ -50,7 +50,7 @@ button:disabled{opacity:.45;cursor:default}
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
 const R = 22;
-const HAND_R = 0.07;
+const HAND_R = 0.085;
 const IT_RED = 0xff4b2b;
 const MINE = 0x3fd0c9;
 
@@ -408,6 +408,7 @@ let wasTouching = false;
 let grounded = true;
 let tagLock = 0;
 let mode = 'menu';
+let drop = 0;
 let yaw = 0, pitch = 0;
 let snapReady = true;
 const keys = {};
@@ -419,12 +420,13 @@ function headPos(out) {
 }
 function youPos(out) {
   headPos(out);
-  out.y = rig.position.y;
+  out.y = rig.position.y + drop;
   return out;
 }
 
 function respawn() {
   rig.position.copy(SPAWN);
+  rig.position.y -= drop;
   vel.set(0, 0, 0);
   history.length = 0;
   for (const h of hands) h.touching = false;
@@ -441,14 +443,14 @@ function body(prevY, dt, holding) {
     if (vn < 0) vel.addScaledVector(tB, -vn);
   }
   headPos(headV);
-  tA.set(headV.x, rig.position.y + 0.7, headV.z);
+  tA.set(headV.x, rig.position.y + drop + 0.7, headV.z);
   tB.copy(tA);
   if (pushOut(tA, 0.25)) {
     rig.position.x += tA.x - tB.x;
     rig.position.z += tA.z - tB.z;
   }
   headPos(headV);
-  const f = floorAt(headV.x, headV.z, prevY + 0.4);
+  const f = floorAt(headV.x, headV.z, prevY + drop + 0.4) - drop;
   grounded = false;
   if (rig.position.y <= f + 0.001) {
     rig.position.y = f;
@@ -576,7 +578,7 @@ function isPlaying() {
 function updateBots(dt, playing) {
   const it = players.find(p => p.it);
   const itPos = it === you ? youPos(youV) : it.pos;
-  const youReachable = playing && rig.position.y < 0.9;
+  const youReachable = playing && rig.position.y + drop < 0.9;
   if (youReachable) youPos(youV);
   for (const b of bots) {
     let tx, tz, speed;
@@ -675,7 +677,7 @@ function checkTags(now, playing) {
     }
     return;
   }
-  if (playing && rig.position.y < 0.9) {
+  if (playing && rig.position.y + drop < 0.9) {
     youPos(youV);
     if (Math.hypot(youV.x - it.pos.x, youV.z - it.pos.z) < 0.7) return setIt(you, it);
   }
@@ -748,6 +750,7 @@ vrBtn.addEventListener('click', async () => {
     await renderer.xr.setSession(session);
     if (document.pointerLockElement) document.exitPointerLock();
     mode = 'vr';
+    drop = 0.55;
     rig.rotation.y = 0;
     respawn();
     menu.classList.add('hide');
@@ -755,6 +758,8 @@ vrBtn.addEventListener('click', async () => {
     dot.style.display = 'none';
     session.addEventListener('end', () => {
       mode = 'menu';
+      drop = 0;
+      rig.position.copy(SPAWN);
       for (const h of hands) { h.mesh.visible = false; h.touching = false; }
       camera.position.set(0, 1.6, 0);
       camera.rotation.set(0, 0, 0);
