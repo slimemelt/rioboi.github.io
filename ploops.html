@@ -40,7 +40,7 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
     <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
-    <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
+    <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back. They're armed too, and they hate each other.</li>
   </ul>
   <p id="note"></p>
 </div>
@@ -408,7 +408,7 @@ const board = textCanvas(512, 640, (x, w, h) => {
     x.fillText(p.name, 92, y + 2);
     x.textAlign = 'right';
     x.fillStyle = 'rgba(255,255,255,.7)';
-    x.fillText(p.bot && !p.alive ? 'splat' : `${p.tags} tag${p.tags === 1 ? '' : 's'}`, w - 48, y + 2);
+    x.fillText(p.bot && !p.alive ? 'splat' : `${p.kills || 0} kill${p.kills === 1 ? '' : 's'}`, w - 48, y + 2);
     x.textAlign = 'left';
   });
   x.textAlign = 'center';
@@ -660,6 +660,26 @@ function updateBots(dt, playing) {
         speed = 2.9;
       }
     }
+    b.scanIn -= dt;
+    if (b.scanIn <= 0) {
+      b.scanIn = 0.3;
+      b.foe = pickFoe(b);
+    }
+    if (b.foe && !b.foe.alive) b.foe = null;
+    if (b.foe && !b.it) {
+      const fx = b.foe.pos.x - b.pos.x, fz = b.foe.pos.z - b.pos.z, fd = Math.hypot(fx, fz) || 1;
+      if (Math.random() < dt * 0.6) b.strafe *= -1;
+      const want = fd > 8 ? 1 : fd < 4 ? -1 : 0;
+      tx = (fx / fd) * want - (fz / fd) * b.strafe * 0.8;
+      tz = (fz / fd) * want + (fx / fd) * b.strafe * 0.8;
+      speed = 2.4;
+    }
+    b.fireIn -= dt;
+    if (b.foe && b.fireIn <= 0) {
+      b.fireIn = 0.5 + Math.random() * 0.9;
+      botShoot(b, b.foe);
+      if (!b.alive) continue;
+    }
     if (Math.abs(b.pos.x) > R - 3) tx -= Math.sign(b.pos.x) * 1.5;
     if (Math.abs(b.pos.z) > R - 3) tz -= Math.sign(b.pos.z) * 1.5;
     const l = Math.hypot(tx, tz) || 1;
@@ -676,7 +696,7 @@ function updateBots(dt, playing) {
     const hop = Math.abs(Math.sin(b.phase));
     b.pos.y = 0.36 + hop * 0.22;
     b.g.position.copy(b.pos);
-    b.g.rotation.y = Math.atan2(b.dir.x, b.dir.z);
+    b.g.rotation.y = b.foe ? Math.atan2(b.foe.pos.x - b.pos.x, b.foe.pos.z - b.pos.z) : Math.atan2(b.dir.x, b.dir.z);
     const squash = 1 - hop;
     b.body.scale.set(1 + 0.08 * squash, 1 - 0.1 * squash, 1 + 0.08 * squash);
     const swing = Math.sin(b.phase) * 0.2;
@@ -1002,11 +1022,11 @@ function squelch() {
   blip(110, 0.35, 'sine', 0.45, 0.35);
 }
 
-function explode(b, push) {
+function explode(b, push, killer) {
   b.alive = false;
   b.g.visible = false;
   b.respawnAt = performance.now() + 6000;
-  you.kills++;
+  if (killer) killer.kills++;
   const center = b.pos.clone();
   b.goreMat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
   scream(center);
@@ -1042,10 +1062,7 @@ const shotSphere = new THREE.Sphere(new V(), 0.42);
 const shotBox = new THREE.Box3();
 const hitP = new V();
 let lastShot = 0;
-function shoot(origin, dir) {
-  const now = performance.now();
-  if (now - lastShot < 150) return false;
-  lastShot = now;
+function fireRay(origin, dir, shooter) {
   shotRay.set(origin, dir);
   let best = 60, target = null;
   for (const s of solids) {
@@ -1056,7 +1073,7 @@ function shoot(origin, dir) {
     }
   }
   for (const b of bots) {
-    if (!b.alive) continue;
+    if (!b.alive || b === shooter) continue;
     shotSphere.center.copy(b.pos);
     if (shotRay.intersectSphere(shotSphere, hitP)) {
       const d = hitP.distanceTo(origin);
@@ -1064,10 +1081,72 @@ function shoot(origin, dir) {
     }
   }
   tracer(origin, origin.clone().addScaledVector(dir, best));
+  if (target) explode(target, dir, shooter);
+  return target;
+}
+
+function shoot(origin, dir) {
+  const now = performance.now();
+  if (now - lastShot < 150) return false;
+  lastShot = now;
   flash.visible = gun.visible;
   blip(1100, 0.07, 'square', 0.1, 0.35);
-  if (target) explode(target, dir);
+  fireRay(origin, dir, you);
   return true;
+}
+
+const botGunGeo = new THREE.BoxGeometry(0.045, 0.07, 0.16);
+const botBarrelGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.12, 10);
+for (const b of bots) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(botGunGeo, gunDark);
+  body.position.set(0, 0.03, -0.04);
+  const tube = new THREE.Mesh(botBarrelGeo, gunDark);
+  tube.rotation.x = Math.PI / 2;
+  tube.position.set(0, 0.045, -0.17);
+  g.add(body, tube);
+  g.scale.setScalar(1.6);
+  g.position.set(0.32, -0.08, 0.3);
+  g.rotation.y = Math.PI;
+  b.g.add(g);
+  b.gun = g;
+  b.kills = 0;
+  b.fireIn = 1 + Math.random() * 2;
+  b.scanIn = Math.random() * 0.3;
+  b.foe = null;
+  b.strafe = Math.random() < 0.5 ? -1 : 1;
+}
+
+const sightDir = new V();
+function canSee(a, b) {
+  sightDir.subVectors(b, a);
+  const dist = sightDir.length();
+  sightDir.divideScalar(dist);
+  shotRay.set(a, sightDir);
+  for (const s of solids) {
+    shotBox.set(s.min, s.max);
+    if (shotRay.intersectBox(shotBox, hitP) && hitP.distanceTo(a) < dist - 0.1) return false;
+  }
+  return true;
+}
+
+function pickFoe(b) {
+  let best = null, bd = 16;
+  for (const o of bots) {
+    if (o === b || !o.alive) continue;
+    const d = o.pos.distanceTo(b.pos);
+    if (d < bd && canSee(b.pos, o.pos)) { best = o; bd = d; }
+  }
+  return best;
+}
+
+function botShoot(b, foe) {
+  b.g.updateMatrixWorld();
+  const from = muzzle.clone().applyMatrix4(b.gun.matrixWorld);
+  const aim = foe.pos.clone().add(new V((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 1.1)).sub(from).normalize();
+  const ear = rig.localToWorld(camera.position.clone());
+  blip(900 + Math.random() * 300, 0.07, 'square', clamp(0.12 / (1 + ear.distanceTo(from) * 0.15), 0.01, 0.1), 0.35);
+  fireRay(from, aim, b);
 }
 
 function vrShoot() {
