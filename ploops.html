@@ -40,6 +40,7 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
     <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
+    <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
   </ul>
   <p id="note"></p>
 </div>
@@ -267,7 +268,7 @@ const pawGeo = new THREE.SphereGeometry(0.09, 12, 8);
 const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const eyeDark = new THREE.MeshBasicMaterial({ color: 0x1a1a22 });
 
-const you = { name: 'You', bot: false, it: false, tags: 0, css: '#3fd0c9', runTime: 0 };
+const you = { name: 'You', bot: false, it: false, tags: 0, kills: 0, css: '#3fd0c9', runTime: 0 };
 const crew = [
   ['Bloop', 0xffb347, '#ffb347'], ['Squish', 0x9b7bff, '#9b7bff'], ['Gloop', 0x5ad1ff, '#5ad1ff'],
   ['Plonk', 0xff7bc5, '#ff7bc5'], ['Dribs', 0xc6e85a, '#c6e85a'], ['Wub', 0xffe066, '#ffe066']
@@ -306,6 +307,7 @@ const bots = crew.map(([name, color, css], i) => {
   const a = (i / crew.length) * Math.PI * 2;
   return {
     name, css, bot: true, it: false, tags: 0, g, body, mat, paws, base: new THREE.Color(color),
+    alive: true, respawnAt: 0, goreMat: new THREE.MeshLambertMaterial({ color }),
     pos: new V(Math.cos(a) * 9, 0.36, Math.sin(a) * 9 - 2), dir: new V(1, 0, 0),
     heading: rand() * Math.PI * 2, turnIn: rand() * 2, phase: rand() * 6
   };
@@ -352,7 +354,7 @@ const wristPaint = textCanvas(256, 128, (x, w, h) => {
   x.font = '700 50px Fredoka, sans-serif';
   x.fillText(you.it ? "YOU'RE IT" : 'RUN!', w / 2, 50);
   x.font = '500 28px Fredoka, sans-serif';
-  x.fillText(`${you.tags} tags · ${fmt(you.runTime)}`, w / 2, 96);
+  x.fillText(`${you.tags} tags · ${you.kills} splats`, w / 2, 96);
 });
 const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.06), new THREE.MeshBasicMaterial({ map: wristPaint.tex, transparent: true }));
 wrist.position.set(0, 0.035, 0.06);
@@ -384,13 +386,13 @@ const board = textCanvas(512, 640, (x, w, h) => {
     x.fillText(p.name, 92, y + 2);
     x.textAlign = 'right';
     x.fillStyle = 'rgba(255,255,255,.7)';
-    x.fillText(`${p.tags} tag${p.tags === 1 ? '' : 's'}`, w - 48, y + 2);
+    x.fillText(p.bot && !p.alive ? 'splat' : `${p.tags} tag${p.tags === 1 ? '' : 's'}`, w - 48, y + 2);
     x.textAlign = 'left';
   });
   x.textAlign = 'center';
   x.fillStyle = 'rgba(255,255,255,.6)';
   x.font = '500 28px Fredoka, sans-serif';
-  x.fillText(`time running: ${fmt(you.runTime)}`, w / 2, h - 40);
+  x.fillText(`running ${fmt(you.runTime)} · ${you.kills} splats`, w / 2, h - 40);
 });
 const boardMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2), new THREE.MeshBasicMaterial({ map: board.tex, transparent: true }));
 boardMesh.position.set(-3.4, 2.1, 6.4);
@@ -593,18 +595,29 @@ function updateBots(dt, playing) {
   const youReachable = playing && rig.position.y + drop < 0.9;
   if (youReachable) youPos(youV);
   for (const b of bots) {
+    if (!b.alive) {
+      if (performance.now() < b.respawnAt) continue;
+      const a = Math.random() * Math.PI * 2;
+      b.alive = true;
+      b.pos.set(Math.cos(a) * (R - 4), 0.36, Math.sin(a) * (R - 4));
+      b.g.visible = true;
+      blip(500, 0.12, 'sine', 0.08, 1.8);
+    }
     let tx, tz, speed;
+    let best = null;
     if (b.it) {
-      let best = null, bd = Infinity;
+      let bd = Infinity;
       if (youReachable) {
         bd = (youV.x - b.pos.x) ** 2 + (youV.z - b.pos.z) ** 2;
         best = youV;
       }
       for (const o of bots) {
-        if (o === b) continue;
+        if (o === b || !o.alive) continue;
         const d = (o.pos.x - b.pos.x) ** 2 + (o.pos.z - b.pos.z) ** 2;
         if (d < bd) { bd = d; best = o.pos; }
       }
+    }
+    if (b.it && best) {
       tx = best.x - b.pos.x;
       tz = best.z - b.pos.z;
       speed = 3.3;
@@ -678,6 +691,7 @@ function checkTags(now, playing) {
   if (it === you) {
     if (!playing) return;
     for (const b of bots) {
+      if (!b.alive) continue;
       let touched = false;
       if (renderer.xr.isPresenting) {
         touched = hands.some(h => h.mesh.visible && h.vis.distanceTo(b.pos) < 0.47);
@@ -689,14 +703,295 @@ function checkTags(now, playing) {
     }
     return;
   }
+  if (!it.alive) return;
   if (playing && rig.position.y + drop < 0.9) {
     youPos(youV);
     if (Math.hypot(youV.x - it.pos.x, youV.z - it.pos.z) < 0.7) return setIt(you, it);
   }
   for (const b of bots) {
-    if (b !== it && b.pos.distanceTo(it.pos) < 0.75) return setIt(b, it);
+    if (b !== it && b.alive && b.pos.distanceTo(it.pos) < 0.75) return setIt(b, it);
   }
 }
+
+const gun = new THREE.Group();
+const gunDark = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
+const gunGlow = new THREE.MeshBasicMaterial({ color: 0xff7a1a });
+const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.07, 0.16), gunDark);
+gunBody.position.set(0, 0.03, -0.04);
+const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.12, 10), gunDark);
+barrel.rotation.x = Math.PI / 2;
+barrel.position.set(0, 0.045, -0.17);
+const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.047, 0.012, 0.1), gunGlow);
+stripe.position.set(0, 0.067, -0.04);
+const flash = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), gunGlow);
+flash.position.set(0, 0.045, -0.25);
+flash.visible = false;
+gun.add(gunBody, barrel, stripe, flash);
+gun.visible = false;
+scene.add(gun);
+const muzzle = new V(0, 0.045, -0.24);
+
+const tracers = [];
+function tracer(a, b) {
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([a.clone(), b.clone()]),
+    new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true })
+  );
+  scene.add(line);
+  tracers.push({ line, life: 0.08 });
+}
+function updateTracers(dt) {
+  for (let i = tracers.length - 1; i >= 0; i--) {
+    const t = tracers[i];
+    t.life -= dt;
+    t.line.material.opacity = Math.max(0, t.life / 0.08);
+    if (t.life <= 0) {
+      scene.remove(t.line);
+      t.line.geometry.dispose();
+      t.line.material.dispose();
+      tracers.splice(i, 1);
+    }
+  }
+  if (flash.visible && performance.now() - lastShot > 50) flash.visible = false;
+}
+
+const dummy = new THREE.Object3D();
+const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+
+const SPLATS = 420;
+const splatGeo = new THREE.CircleGeometry(1, 12);
+splatGeo.rotateX(-Math.PI / 2);
+const splatMesh = new THREE.InstancedMesh(splatGeo, new THREE.MeshLambertMaterial({ color: 0x7d0606, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), SPLATS);
+splatMesh.count = 0;
+splatMesh.frustumCulled = false;
+scene.add(splatMesh);
+let splatTotal = 0;
+function splat(x, y, z, size) {
+  dummy.position.set(x, y + 0.01 + (splatTotal % 7) * 0.0006, z);
+  dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+  dummy.scale.set(size * (0.6 + Math.random() * 0.8), 1, size);
+  dummy.updateMatrix();
+  splatMesh.setMatrixAt(splatTotal % SPLATS, dummy.matrix);
+  splatTotal++;
+  splatMesh.count = Math.min(SPLATS, splatTotal);
+  splatMesh.instanceMatrix.needsUpdate = true;
+}
+
+const DROPS = 900;
+const dropMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.028, 0), new THREE.MeshLambertMaterial({ color: 0xb01010 }), DROPS);
+dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+dropMesh.frustumCulled = false;
+for (let i = 0; i < DROPS; i++) dropMesh.setMatrixAt(i, zeroMatrix);
+scene.add(dropMesh);
+const drops = Array.from({ length: DROPS }, () => ({ p: new V(), v: new V(), s: 1, on: false }));
+let dropCursor = 0;
+let dropsLive = 0;
+
+function spray(origin, push, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const d = drops[dropCursor];
+    dropCursor = (dropCursor + 1) % DROPS;
+    if (!d.on) dropsLive++;
+    d.on = true;
+    d.p.copy(origin);
+    d.v.set(Math.random() - 0.5, Math.random() * 0.9 + 0.2, Math.random() - 0.5).normalize()
+      .multiplyScalar(speed * (0.3 + Math.random())).addScaledVector(push, 1 + Math.random() * 2);
+    d.s = 0.5 + Math.random() * 1.4;
+  }
+}
+
+function updateDrops(dt) {
+  if (!dropsLive) return;
+  for (let i = 0; i < DROPS; i++) {
+    const d = drops[i];
+    if (!d.on) continue;
+    d.v.y -= 9.8 * dt;
+    d.p.addScaledVector(d.v, dt);
+    const f = floorAt(d.p.x, d.p.z, d.p.y + 0.05);
+    if (d.p.y <= f || d.p.y < -5) {
+      d.on = false;
+      dropsLive--;
+      if (d.p.y > -5 && Math.random() < 0.6) splat(d.p.x, f, d.p.z, 0.04 + d.s * 0.07);
+      dropMesh.setMatrixAt(i, zeroMatrix);
+      continue;
+    }
+    dummy.position.copy(d.p);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(d.s);
+    dummy.updateMatrix();
+    dropMesh.setMatrixAt(i, dummy.matrix);
+  }
+  dropMesh.instanceMatrix.needsUpdate = true;
+}
+
+const chunkGeo = new THREE.IcosahedronGeometry(0.07, 0);
+const boneGeo = new THREE.BoxGeometry(0.025, 0.025, 0.13);
+const meatMat = new THREE.MeshLambertMaterial({ color: 0x8c1010 });
+const darkMeatMat = new THREE.MeshLambertMaterial({ color: 0x5a0808 });
+const boneMat = new THREE.MeshLambertMaterial({ color: 0xefe6d2 });
+const chunks = [];
+const bounce = new V();
+
+function fling(mesh, pos, push, size, radius) {
+  mesh.position.copy(pos).add(new V(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).multiplyScalar(0.3));
+  mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+  mesh.scale.setScalar(size);
+  scene.add(mesh);
+  const v = new V(Math.random() - 0.5, Math.random() * 0.8 + 0.3, Math.random() - 0.5).normalize()
+    .multiplyScalar(2 + Math.random() * 5).addScaledVector(push, 2 + Math.random() * 3);
+  const spin = new V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(24);
+  chunks.push({ m: mesh, v, spin, life: 9 + Math.random() * 5, size, r: radius * size, bleeds: Math.random() < 0.6 });
+  if (chunks.length > 180) {
+    const old = chunks.shift();
+    scene.remove(old.m);
+  }
+}
+
+function updateChunks(dt) {
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    const c = chunks[i];
+    c.life -= dt;
+    if (c.life <= 0 || c.m.position.y < -5) {
+      scene.remove(c.m);
+      chunks.splice(i, 1);
+      continue;
+    }
+    c.v.y -= 9.8 * dt;
+    const p = c.m.position;
+    p.addScaledVector(c.v, dt);
+    bounce.copy(p);
+    if (pushOut(bounce, c.r)) {
+      const n = bounce.clone().sub(p).normalize();
+      const vn = c.v.dot(n);
+      if (vn < 0) {
+        if (c.bleeds && n.y > 0.7 && vn < -1.2) splat(bounce.x, bounce.y - c.r, bounce.z, 0.1 + c.size * 0.1);
+        c.v.addScaledVector(n, -vn * 1.35);
+        c.v.multiplyScalar(0.62);
+        c.spin.multiplyScalar(0.6);
+      }
+      p.copy(bounce);
+    }
+    c.m.rotation.x += c.spin.x * dt;
+    c.m.rotation.y += c.spin.y * dt;
+    c.m.rotation.z += c.spin.z * dt;
+    if (c.life < 1) c.m.scale.setScalar(c.size * c.life);
+  }
+}
+
+function squelch() {
+  if (!ac) return;
+  const len = Math.floor(ac.sampleRate * 0.6);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const filter = ac.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 650;
+  const g = ac.createGain();
+  g.gain.value = 0.8;
+  src.connect(filter).connect(g).connect(ac.destination);
+  src.start();
+  blip(110, 0.35, 'sine', 0.45, 0.35);
+}
+
+function explode(b, push) {
+  b.alive = false;
+  b.g.visible = false;
+  b.respawnAt = performance.now() + 6000;
+  you.kills++;
+  const center = b.pos.clone();
+  b.goreMat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
+  for (let i = 0; i < 16; i++) fling(new THREE.Mesh(chunkGeo, b.goreMat), center, push, 0.7 + Math.random() * 1.5, 0.07);
+  for (let i = 0; i < 14; i++) fling(new THREE.Mesh(chunkGeo, Math.random() < 0.5 ? meatMat : darkMeatMat), center, push, 0.5 + Math.random() * 1.2, 0.07);
+  for (let i = 0; i < 4; i++) fling(new THREE.Mesh(boneGeo, boneMat), center, push, 0.8 + Math.random() * 0.6, 0.05);
+  for (let i = 0; i < 2; i++) {
+    const eye = new THREE.Mesh(eyeGeo, eyeWhite);
+    const pupil = new THREE.Mesh(pupilGeo, eyeDark);
+    pupil.position.z = 0.05;
+    eye.add(pupil);
+    fling(eye, center, push, 1, 0.075);
+  }
+  spray(center, push, 170, 5);
+  const ground = floorAt(center.x, center.z, center.y);
+  for (let i = 0; i < 8; i++) splat(center.x + (Math.random() - 0.5) * 1.4, ground, center.z + (Math.random() - 0.5) * 1.4, 0.2 + Math.random() * 0.4);
+  squelch();
+  buzz(0.8, 120);
+  if (b.it) {
+    const left = bots.filter(o => o.alive);
+    setIt(left.length ? left[Math.floor(Math.random() * left.length)] : you, null);
+  }
+  board.redraw();
+  wristPaint.redraw();
+}
+
+const shotRay = new THREE.Ray();
+const shotSphere = new THREE.Sphere(new V(), 0.42);
+const shotBox = new THREE.Box3();
+const hitP = new V();
+let lastShot = 0;
+function shoot(origin, dir) {
+  const now = performance.now();
+  if (now - lastShot < 150) return false;
+  lastShot = now;
+  shotRay.set(origin, dir);
+  let best = 60, target = null;
+  for (const s of solids) {
+    shotBox.set(s.min, s.max);
+    if (shotRay.intersectBox(shotBox, hitP)) {
+      const d = hitP.distanceTo(origin);
+      if (d < best) best = d;
+    }
+  }
+  for (const b of bots) {
+    if (!b.alive) continue;
+    shotSphere.center.copy(b.pos);
+    if (shotRay.intersectSphere(shotSphere, hitP)) {
+      const d = hitP.distanceTo(origin);
+      if (d < best) { best = d; target = b; }
+    }
+  }
+  tracer(origin, origin.clone().addScaledVector(dir, best));
+  flash.visible = gun.visible;
+  blip(1100, 0.07, 'square', 0.1, 0.35);
+  if (target) explode(target, dir);
+  return true;
+}
+
+function vrShoot() {
+  const h = hands.find(h => h.src && h.src.handedness === 'right');
+  if (!h || !h.mesh.visible) {
+    gun.visible = false;
+    return;
+  }
+  gun.visible = true;
+  gun.position.copy(h.mesh.position);
+  gun.quaternion.copy(h.mesh.quaternion);
+  const gp = h.src.gamepad;
+  if (!gp || !gp.buttons[0] || !gp.buttons[0].pressed) return;
+  gun.updateMatrixWorld();
+  const from = muzzle.clone().applyMatrix4(gun.matrixWorld);
+  const dir = new V(0, 0, -1).applyQuaternion(gun.quaternion);
+  if (shoot(from, dir)) {
+    const act = gp.hapticActuators && gp.hapticActuators[0];
+    if (act && act.pulse) { try { act.pulse(0.35, 30); } catch (e) {} }
+  }
+}
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (mode !== 'flat' || !menu.classList.contains('hide') || e.button !== 0) return;
+  if (!document.pointerLockElement) {
+    try {
+      const p = renderer.domElement.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+    } catch (err) {}
+  }
+  const from = new V();
+  camera.getWorldPosition(from);
+  const dir = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  shoot(from.addScaledVector(dir, 0.3).add(new V(0, -0.08, 0)), dir);
+});
 
 const menu = document.getElementById('menu');
 const hud = document.getElementById('hud');
@@ -806,8 +1101,13 @@ renderer.setAnimationLoop(() => {
     yaw += dt * 0.06;
     camera.rotation.set(-0.08, yaw, 0);
   }
+  if (renderer.xr.isPresenting) vrShoot();
+  else gun.visible = false;
   updateBots(dt, playing);
   checkTags(now, playing);
+  updateChunks(dt);
+  updateDrops(dt);
+  updateTracers(dt);
   if (playing && !you.it) you.runTime += dt;
   boardTimer += dt;
   if (boardTimer > 0.5) {
