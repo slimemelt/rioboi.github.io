@@ -37,7 +37,7 @@ button:disabled{opacity:.45;cursor:default}
     <button id="flat" class="alt">Play on desktop</button>
   </div>
   <ul class="how">
-    <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns.</li>
+    <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
     <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
   </ul>
@@ -481,6 +481,17 @@ function snapTurn() {
   }
 }
 
+function heightAdjust(dt) {
+  const h = hands.find(h => h.src && h.src.handedness === 'left' && h.src.gamepad);
+  if (!h) return;
+  const ax = h.src.gamepad.axes;
+  const y = ax.length >= 4 ? ax[3] : 0;
+  if (Math.abs(y) < 0.5) return;
+  const next = clamp(drop - y * 0.6 * dt, 0.2, 1.3);
+  rig.position.y -= next - drop;
+  drop = next;
+}
+
 function vrMove(dt, now) {
   const prevY = rig.position.y;
   rig.updateMatrixWorld(true);
@@ -536,6 +547,7 @@ function vrMove(dt, now) {
   wasTouching = holding;
   body(prevY, dt, holding);
   snapTurn();
+  heightAdjust(dt);
   rig.updateMatrixWorld(true);
   for (const h of hands) {
     const on = !!(h.src && h.grip.visible);
@@ -750,7 +762,7 @@ vrBtn.addEventListener('click', async () => {
     await renderer.xr.setSession(session);
     if (document.pointerLockElement) document.exitPointerLock();
     mode = 'vr';
-    drop = 0.55;
+    drop = 0.85;
     rig.rotation.y = 0;
     respawn();
     menu.classList.add('hide');
