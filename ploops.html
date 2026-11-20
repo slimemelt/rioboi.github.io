@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ploops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:#9fd8f0;font-family:Fredoka,system-ui,sans-serif;color:#17322a}
+canvas{display:block}
+#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.55),rgba(159,216,240,.75));text-align:center}
+#menu.hide{display:none}
+h1{font-size:clamp(64px,14vw,132px);font-weight:700;line-height:.9;color:#2fbfa8;text-shadow:0 6px 0 #17322a;letter-spacing:-2px}
+.sub{font-size:20px;font-weight:500;opacity:.8}
+.btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+button{font:700 20px Fredoka,system-ui,sans-serif;padding:14px 26px;border:0;border-radius:999px;background:#17322a;color:#fff;cursor:pointer;box-shadow:0 5px 0 #0b1a15;transition:transform .08s}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #0b1a15}
+button.alt{background:#fff;color:#17322a;box-shadow:0 5px 0 #7aa9b8}
+button:disabled{opacity:.45;cursor:default}
+.how{list-style:none;padding:0;max-width:520px;font-size:16px;line-height:1.45;display:grid;gap:6px}
+.how b{color:#1f8f7d}
+#note{font-size:14px;max-width:460px;opacity:.75;min-height:1em}
+#hud{position:fixed;left:50%;top:16px;transform:translateX(-50%);font-weight:700;font-size:20px;padding:8px 18px;border-radius:999px;background:rgba(23,50,42,.8);color:#fff;pointer-events:none;display:none}
+#hud.it{background:rgba(214,58,30,.9)}
+#dot{position:fixed;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.35);pointer-events:none;display:none}
+</style>
+</head>
+<body>
+<div id="menu">
+  <h1>Ploops</h1>
+  <p class="sub">tag, but you only get arms</p>
+  <div class="btns">
+    <button id="vr" disabled>Looking for a headset…</button>
+    <button id="flat" class="alt">Play on desktop</button>
+  </div>
+  <ul class="how">
+    <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns.</li>
+    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
+    <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
+  </ul>
+  <p id="note"></p>
+</div>
+<div id="hud"></div>
+<div id="dot"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const V = THREE.Vector3;
+const UP = new V(0, 1, 0);
+const R = 22;
+const HAND_R = 0.07;
+const IT_RED = 0xff4b2b;
+const MINE = 0x3fd0c9;
+
+let seed = 11;
+const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+if (renderer.xr.setFoveation) renderer.xr.setFoveation(1);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const skyColor = new THREE.Color(0x9fd8f0);
+scene.background = skyColor;
+scene.fog = new THREE.Fog(skyColor, 20, 60);
+scene.add(new THREE.HemisphereLight(0xe6f7ff, 0x5b4a3a, 0.95));
+const sun = new THREE.DirectionalLight(0xfff0d2, 0.75);
+sun.position.set(8, 20, 6);
+scene.add(sun);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.03, 200);
+camera.rotation.order = 'YXZ';
+camera.position.set(0, 1.6, 0);
+const rig = new THREE.Group();
+rig.add(camera);
+scene.add(rig);
+
+const solids = [];
+const mats = new Map();
+const lambert = c => {
+  if (!mats.has(c)) mats.set(c, new THREE.MeshLambertMaterial({ color: c }));
+  return mats.get(c);
+};
+
+function box(x, y, z, w, h, d, color, pitch = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lambert(color));
+  m.position.set(x, y, z);
+  scene.add(m);
+  if (pitch) solids.push({ min: new V(x - w / 2, y - h / 2, z - d / 2), max: new V(x + w / 2, y + h / 2, z + d / 2), pitch });
+  return m;
+}
+
+box(0, -0.5, 0, R * 2 + 6, 1, R * 2 + 6, 0x74c35e, 190);
+for (const [x, z, w, d] of [[0, -R - 1, R * 2 + 4, 2], [0, R + 1, R * 2 + 4, 2], [-R - 1, 0, 2, R * 2 + 4], [R + 1, 0, 2, R * 2 + 4]]) {
+  box(x, 3, z, w, 6, d, 0x8a6a48, 150);
+}
+for (let i = 0; i < 46; i++) {
+  const s = 0.8 + rand() * 2.2;
+  box((rand() - 0.5) * R * 1.9, 0.005, (rand() - 0.5) * R * 1.9, s, 0.01, s * (0.6 + rand() * 0.8), rand() > 0.5 ? 0x68b553 : 0x82cc69);
+}
+
+const treeSpots = [[-9, -6], [8, -10], [-13, 9], [12, 6], [1, -16], [-17, -13], [16, -16], [-4, 15], [17, 15], [-18, 1], [6, 13], [-7, -17]];
+for (const [x, z] of treeSpots) {
+  const h = 6 + rand() * 3;
+  box(x, h / 2, z, 0.9, h, 0.9, 0x7b5233, 150);
+  box(x, h + 1, z, 4.2, 2.2, 4.2, 0x3e9a4a, 320);
+  box(x + 0.5, h + 2.6, z - 0.3, 2.6, 1.2, 2.6, 0x52b05a, 360);
+  const a = rand() * Math.PI * 2;
+  const bh = 1.8 + rand() * 1.4;
+  box(x + Math.cos(a) * 1.3, bh, z + Math.sin(a) * 1.3, 1.8, 0.22, 1.8, 0xa0703f, 240);
+  box(x - Math.cos(a) * 1.2, bh + 2, z - Math.sin(a) * 1.2, 1.5, 0.22, 1.5, 0xa0703f, 240);
+}
+
+for (const [x, z] of [[-2.3, -2.3], [2.3, -2.3], [-2.3, 2.3], [2.3, 2.3]]) box(x, 2, z, 0.45, 4, 0.45, 0x7b5233, 150);
+box(0, 4.1, 0, 5.4, 0.3, 5.4, 0xb07d47, 240);
+box(0, 4.55, -2.6, 5.4, 0.6, 0.2, 0x8a5a32, 200);
+box(-2.6, 4.55, 0, 0.2, 0.6, 5.4, 0x8a5a32, 200);
+box(2.6, 4.55, 0, 0.2, 0.6, 5.4, 0x8a5a32, 200);
+for (const [x, z] of [[-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5], [2.5, 2.5]]) box(x, 5.35, z, 0.25, 2.2, 0.25, 0x7b5233, 150);
+box(0, 6.6, 0, 6.4, 0.3, 6.4, 0xd0644b, 260);
+for (let i = 0; i < 12; i++) {
+  const top = 0.35 * (i + 1);
+  box(1.4, top / 2, 2.7 + 0.45 * (11 - i) + 0.225, 1.2, top, 0.45, i % 2 ? 0x9a6a3c : 0xa87644, 220);
+}
+
+for (const [x, z, w, h, d] of [[6, 2, 1.6, 0.9, 1.4], [-6, 4, 1.2, 1.0, 1.8], [9, -3, 2, 1.3, 1.6], [-10, -1, 1.4, 1, 1.4], [-14, -6, 2.4, 1.8, 2]]) {
+  box(x, h / 2, z, w, h, d, 0x9aa0a6, 420);
+}
+box(-5, 0.4, -9, 5, 0.8, 0.8, 0x6d4a2c, 170);
+box(5, 2.6, -4, 1.6, 0.25, 1.6, 0xc98a4b, 260);
+box(-4.5, 3.2, -3.5, 1.6, 0.25, 1.6, 0xc98a4b, 260);
+box(10, 3.8, 0, 1.4, 0.25, 1.4, 0xc98a4b, 260);
+
+const stemGeo = new THREE.CylinderGeometry(0.05, 0.07, 0.26, 8);
+const capGeo = new THREE.SphereGeometry(0.17, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+for (let i = 0; i < 18; i++) {
+  const x = (rand() - 0.5) * R * 1.8, z = (rand() - 0.5) * R * 1.8;
+  if (Math.hypot(x, z) < 4) continue;
+  const stem = new THREE.Mesh(stemGeo, lambert(0xf3ead6));
+  stem.position.set(x, 0.13, z);
+  const cap = new THREE.Mesh(capGeo, lambert(rand() > 0.4 ? 0xe2533f : 0xf0b84a));
+  cap.position.set(x, 0.24, z);
+  scene.add(stem, cap);
+}
+
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x777777 });
+for (let i = 0; i < 9; i++) {
+  const g = new THREE.Group();
+  for (let j = 0; j < 3; j++) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(3 + rand() * 3, 1.2 + rand(), 2 + rand() * 2), cloudMat);
+    m.position.set(j * 2 - 2, rand() * 0.6, rand() - 0.5);
+    g.add(m);
+  }
+  const a = rand() * Math.PI * 2;
+  g.position.set(Math.cos(a) * 30, 17 + rand() * 6, Math.sin(a) * 30);
+  scene.add(g);
+}
+
+function pushOut(p, r) {
+  let hit = null;
+  for (let pass = 0; pass < 3; pass++) {
+    let moved = false;
+    for (const b of solids) {
+      const cx = clamp(p.x, b.min.x, b.max.x), cy = clamp(p.y, b.min.y, b.max.y), cz = clamp(p.z, b.min.z, b.max.z);
+      const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= r * r) continue;
+      hit = b;
+      moved = true;
+      if (d2 > 1e-10) {
+        const d = Math.sqrt(d2), s = (r - d) / d;
+        p.x += dx * s; p.y += dy * s; p.z += dz * s;
+      } else {
+        const faces = [p.x - b.min.x, b.max.x - p.x, p.y - b.min.y, b.max.y - p.y, p.z - b.min.z, b.max.z - p.z];
+        let k = 0;
+        for (let i = 1; i < 6; i++) if (faces[i] < faces[k]) k = i;
+        if (k === 0) p.x = b.min.x - r; else if (k === 1) p.x = b.max.x + r;
+        else if (k === 2) p.y = b.min.y - r; else if (k === 3) p.y = b.max.y + r;
+        else if (k === 4) p.z = b.min.z - r; else p.z = b.max.z + r;
+      }
+    }
+    if (!moved) break;
+  }
+  return hit;
+}
+
+function pushOutFlat(p, r) {
+  for (const b of solids) {
+    if (b.max.y < 0.3 || b.min.y > 0.8) continue;
+    const cx = clamp(p.x, b.min.x, b.max.x), cz = clamp(p.z, b.min.z, b.max.z);
+    const dx = p.x - cx, dz = p.z - cz, d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) continue;
+    if (d2 > 1e-10) {
+      const d = Math.sqrt(d2), s = (r - d) / d;
+      p.x += dx * s; p.z += dz * s;
+    } else {
+      const faces = [p.x - b.min.x, b.max.x - p.x, p.z - b.min.z, b.max.z - p.z];
+      let k = 0;
+      for (let i = 1; i < 4; i++) if (faces[i] < faces[k]) k = i;
+      if (k === 0) p.x = b.min.x - r; else if (k === 1) p.x = b.max.x + r;
+      else if (k === 2) p.z = b.min.z - r; else p.z = b.max.z + r;
+    }
+  }
+}
+
+function floorAt(x, z, maxTop) {
+  let f = -Infinity;
+  for (const b of solids) {
+    if (x < b.min.x - 0.05 || x > b.max.x + 0.05 || z < b.min.z - 0.05 || z > b.max.z + 0.05) continue;
+    if (b.max.y <= maxTop && b.max.y > f) f = b.max.y;
+  }
+  return f;
+}
+
+let ac = null;
+function wakeAudio() {
+  if (!ac) {
+    try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; }
+  }
+  if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
+}
+function blip(freq, dur = 0.08, type = 'triangle', vol = 0.25, slide = 0.6) {
+  if (!ac) return;
+  const t = ac.currentTime;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  o.connect(g).connect(ac.destination);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+
+const paintQueue = [];
+function textCanvas(w, h, paint) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const tex = new THREE.CanvasTexture(c);
+  const redraw = () => { paint(c.getContext('2d'), w, h); tex.needsUpdate = true; };
+  redraw();
+  paintQueue.push(redraw);
+  return { tex, redraw };
+}
+function roundRect(x, X, Y, w, h, r) {
+  x.beginPath();
+  x.moveTo(X + r, Y);
+  x.arcTo(X + w, Y, X + w, Y + h, r);
+  x.arcTo(X + w, Y + h, X, Y + h, r);
+  x.arcTo(X, Y + h, X, Y, r);
+  x.arcTo(X, Y, X + w, Y, r);
+  x.closePath();
+}
+
+const bodyGeo = new THREE.IcosahedronGeometry(0.35, 2);
+const eyeGeo = new THREE.SphereGeometry(0.075, 12, 8);
+const pupilGeo = new THREE.SphereGeometry(0.04, 10, 6);
+const pawGeo = new THREE.SphereGeometry(0.09, 12, 8);
+const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const eyeDark = new THREE.MeshBasicMaterial({ color: 0x1a1a22 });
+
+const you = { name: 'You', bot: false, it: false, tags: 0, css: '#3fd0c9', runTime: 0 };
+const crew = [
+  ['Bloop', 0xffb347, '#ffb347'], ['Squish', 0x9b7bff, '#9b7bff'], ['Gloop', 0x5ad1ff, '#5ad1ff'],
+  ['Plonk', 0xff7bc5, '#ff7bc5'], ['Dribs', 0xc6e85a, '#c6e85a'], ['Wub', 0xffe066, '#ffe066']
+];
+const bots = crew.map(([name, color, css], i) => {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color });
+  const body = new THREE.Mesh(bodyGeo, mat);
+  g.add(body);
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeWhite);
+    eye.position.set(0.12 * s, 0.08, 0.29);
+    const pupil = new THREE.Mesh(pupilGeo, eyeDark);
+    pupil.position.set(0, 0, 0.05);
+    eye.add(pupil);
+    body.add(eye);
+  }
+  const paws = [new THREE.Mesh(pawGeo, mat), new THREE.Mesh(pawGeo, mat)];
+  g.add(...paws);
+  const tag = textCanvas(256, 72, (x, w, h) => {
+    x.clearRect(0, 0, w, h);
+    x.font = '700 44px Fredoka, sans-serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.lineWidth = 8;
+    x.strokeStyle = 'rgba(0,0,0,.55)';
+    x.strokeText(name, w / 2, h / 2 + 2);
+    x.fillStyle = '#fff';
+    x.fillText(name, w / 2, h / 2 + 2);
+  });
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tag.tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(0.75, 0.21, 1);
+  sprite.position.y = 0.72;
+  g.add(sprite);
+  scene.add(g);
+  const a = (i / crew.length) * Math.PI * 2;
+  return {
+    name, css, bot: true, it: false, tags: 0, g, body, mat, paws, base: new THREE.Color(color),
+    pos: new V(Math.cos(a) * 9, 0.36, Math.sin(a) * 9 - 2), dir: new V(1, 0, 0),
+    heading: rand() * Math.PI * 2, turnIn: rand() * 2, phase: rand() * 6
+  };
+});
+const players = [you, ...bots];
+
+const handMat = new THREE.MeshLambertMaterial({ color: MINE });
+const handGeo = new THREE.SphereGeometry(HAND_R, 16, 12);
+const hands = [0, 1].map(i => {
+  const grip = renderer.xr.getControllerGrip(i);
+  rig.add(grip);
+  const mesh = new THREE.Mesh(handGeo, handMat);
+  mesh.scale.set(1, 0.8, 1.25);
+  mesh.visible = false;
+  scene.add(mesh);
+  const h = { grip, mesh, src: null, touching: false, anchor: new V(), target: new V(), vis: new V(), lastLocal: new V(), speed: 0, lastTap: 0 };
+  grip.addEventListener('connected', e => {
+    h.src = e.data;
+    if (e.data.handedness === 'left') grip.add(wrist);
+  });
+  grip.addEventListener('disconnected', () => { h.src = null; h.touching = false; });
+  return h;
+});
+
+function buzz(strength, ms) {
+  for (const h of hands) {
+    const act = h.src && h.src.gamepad && h.src.gamepad.hapticActuators && h.src.gamepad.hapticActuators[0];
+    if (act && act.pulse) {
+      try { act.pulse(strength, ms); } catch (e) {}
+    }
+  }
+}
+
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+const wristPaint = textCanvas(256, 128, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = you.it ? '#d63a1e' : '#17322a';
+  roundRect(x, 4, 4, w - 8, h - 8, 26);
+  x.fill();
+  x.fillStyle = '#fff';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.font = '700 50px Fredoka, sans-serif';
+  x.fillText(you.it ? "YOU'RE IT" : 'RUN!', w / 2, 50);
+  x.font = '500 28px Fredoka, sans-serif';
+  x.fillText(`${you.tags} tags · ${fmt(you.runTime)}`, w / 2, 96);
+});
+const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.06), new THREE.MeshBasicMaterial({ map: wristPaint.tex, transparent: true }));
+wrist.position.set(0, 0.035, 0.06);
+wrist.rotation.x = -Math.PI / 2.6;
+
+const board = textCanvas(512, 640, (x, w, h) => {
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = '#17322a';
+  roundRect(x, 0, 0, w, h, 40);
+  x.fill();
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillStyle = '#5fe0c8';
+  x.font = '700 96px Fredoka, sans-serif';
+  x.fillText('PLOOPS', w / 2, 82);
+  const it = players.find(p => p.it);
+  x.fillStyle = you.it ? '#ff6a4d' : '#fff';
+  x.font = '700 40px Fredoka, sans-serif';
+  x.fillText(you.it ? "YOU'RE IT!" : `${it ? it.name : '?'} is it`, w / 2, 160);
+  x.textAlign = 'left';
+  x.font = '500 34px Fredoka, sans-serif';
+  players.forEach((p, i) => {
+    const y = 228 + i * 54;
+    x.fillStyle = p.it ? '#ff4b2b' : p.css;
+    x.beginPath();
+    x.arc(60, y, 16, 0, Math.PI * 2);
+    x.fill();
+    x.fillStyle = '#fff';
+    x.fillText(p.name, 92, y + 2);
+    x.textAlign = 'right';
+    x.fillStyle = 'rgba(255,255,255,.7)';
+    x.fillText(`${p.tags} tag${p.tags === 1 ? '' : 's'}`, w - 48, y + 2);
+    x.textAlign = 'left';
+  });
+  x.textAlign = 'center';
+  x.fillStyle = 'rgba(255,255,255,.6)';
+  x.font = '500 28px Fredoka, sans-serif';
+  x.fillText(`time running: ${fmt(you.runTime)}`, w / 2, h - 40);
+});
+const boardMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2), new THREE.MeshBasicMaterial({ map: board.tex, transparent: true }));
+boardMesh.position.set(-3.4, 2.1, 6.4);
+boardMesh.rotation.y = Math.atan2(3.4, 2.6);
+scene.add(boardMesh);
+box(-3.4, 0.6, 6.4, 0.14, 1.2, 0.14, 0x7b5233);
+
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => paintQueue.forEach(f => f()));
+
+const SPAWN = new V(0, 0, 9.5);
+rig.position.copy(SPAWN);
+const vel = new V();
+const history = [];
+let wasTouching = false;
+let grounded = true;
+let tagLock = 0;
+let mode = 'menu';
+let yaw = 0, pitch = 0;
+let snapReady = true;
+const keys = {};
+const tA = new V(), tB = new V(), moveSum = new V(), headV = new V(), youV = new V();
+
+function headPos(out) {
+  rig.updateMatrixWorld(true);
+  return out.copy(camera.position).applyMatrix4(rig.matrixWorld);
+}
+function youPos(out) {
+  headPos(out);
+  out.y = rig.position.y;
+  return out;
+}
+
+function respawn() {
+  rig.position.copy(SPAWN);
+  vel.set(0, 0, 0);
+  history.length = 0;
+  for (const h of hands) h.touching = false;
+}
+
+function body(prevY, dt, holding) {
+  headPos(headV);
+  tA.copy(headV);
+  if (pushOut(tA, 0.2)) {
+    tB.subVectors(tA, headV);
+    rig.position.add(tB);
+    tB.normalize();
+    const vn = vel.dot(tB);
+    if (vn < 0) vel.addScaledVector(tB, -vn);
+  }
+  headPos(headV);
+  tA.set(headV.x, rig.position.y + 0.7, headV.z);
+  tB.copy(tA);
+  if (pushOut(tA, 0.25)) {
+    rig.position.x += tA.x - tB.x;
+    rig.position.z += tA.z - tB.z;
+  }
+  headPos(headV);
+  const f = floorAt(headV.x, headV.z, prevY + 0.4);
+  grounded = false;
+  if (rig.position.y <= f + 0.001) {
+    rig.position.y = f;
+    if (vel.y < 0) vel.y = 0;
+    grounded = true;
+  }
+  if (grounded && !holding) {
+    const k = Math.exp(-10 * dt);
+    vel.x *= k;
+    vel.z *= k;
+  }
+  if (rig.position.y < -6) respawn();
+}
+
+function snapTurn() {
+  const h = hands.find(h => h.src && h.src.handedness === 'right' && h.src.gamepad);
+  if (!h) return;
+  const ax = h.src.gamepad.axes;
+  const x = ax.length >= 4 ? ax[2] : (ax[0] || 0);
+  if (Math.abs(x) < 0.3) snapReady = true;
+  else if (snapReady && Math.abs(x) > 0.75) {
+    snapReady = false;
+    const ang = x > 0 ? -Math.PI / 4 : Math.PI / 4;
+    headPos(headV);
+    rig.position.sub(headV).applyAxisAngle(UP, ang).add(headV);
+    rig.rotation.y += ang;
+    for (const hh of hands) hh.touching = false;
+  }
+}
+
+function vrMove(dt, now) {
+  const prevY = rig.position.y;
+  rig.updateMatrixWorld(true);
+  moveSum.set(0, 0, 0);
+  let n = 0;
+  for (const h of hands) {
+    if (!h.src || !h.grip.visible) { h.touching = false; continue; }
+    h.speed = h.grip.position.distanceTo(h.lastLocal) / dt;
+    h.lastLocal.copy(h.grip.position);
+    h.grip.getWorldPosition(h.target);
+    tA.copy(h.target);
+    if (h.touching) {
+      if (pushOut(tA, HAND_R + 0.025)) {
+        moveSum.add(tB.subVectors(h.anchor, h.target));
+        n++;
+      } else h.touching = false;
+    } else {
+      const hit = pushOut(tA, HAND_R);
+      if (hit) {
+        h.touching = true;
+        h.anchor.copy(tA);
+        moveSum.add(tB.subVectors(tA, h.target));
+        n++;
+        if (now - h.lastTap > 90) {
+          h.lastTap = now;
+          const loud = clamp(h.speed * 0.07, 0.03, 0.32);
+          blip(hit.pitch * (0.9 + Math.random() * 0.2), 0.07, 'triangle', loud, 0.55);
+          const act = h.src.gamepad && h.src.gamepad.hapticActuators && h.src.gamepad.hapticActuators[0];
+          if (act && act.pulse) { try { act.pulse(clamp(loud * 2.5, 0.1, 0.8), 25); } catch (e) {} }
+        }
+      }
+    }
+  }
+  const holding = n > 0;
+  if (holding) {
+    moveSum.divideScalar(n);
+    if (moveSum.length() > 0.6) moveSum.setLength(0.6);
+    rig.position.add(moveSum);
+    history.push(moveSum.clone().divideScalar(dt));
+    if (history.length > 6) history.shift();
+    vel.set(0, 0, 0);
+  } else {
+    if (wasTouching && history.length) {
+      vel.set(0, 0, 0);
+      for (const v of history) vel.add(v);
+      vel.divideScalar(history.length).multiplyScalar(1.15);
+      if (vel.length() > 7) vel.setLength(7);
+    }
+    history.length = 0;
+    vel.y -= 9.8 * dt;
+    rig.position.addScaledVector(vel, dt);
+  }
+  wasTouching = holding;
+  body(prevY, dt, holding);
+  snapTurn();
+  rig.updateMatrixWorld(true);
+  for (const h of hands) {
+    const on = !!(h.src && h.grip.visible);
+    h.mesh.visible = on;
+    if (!on) continue;
+    h.grip.getWorldPosition(h.target);
+    if (h.touching) h.vis.copy(h.anchor);
+    else {
+      h.vis.copy(h.target);
+      pushOut(h.vis, HAND_R);
+    }
+    h.mesh.position.copy(h.vis);
+    h.grip.getWorldQuaternion(h.mesh.quaternion);
+  }
+}
+
+function flatMove(dt) {
+  const prevY = rig.position.y;
+  const active = mode === 'flat' && menu.classList.contains('hide');
+  const fw = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  tA.set(active ? st : 0, 0, active ? -fw : 0);
+  if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2).applyAxisAngle(UP, yaw);
+  vel.x = tA.x;
+  vel.z = tA.z;
+  if (active && keys.Space && grounded) {
+    vel.y = 6.2;
+    blip(240, 0.1, 'triangle', 0.12, 1.5);
+  }
+  vel.y -= 15 * dt;
+  rig.position.addScaledVector(vel, dt);
+  body(prevY, dt, false);
+  camera.rotation.set(pitch, yaw, 0);
+}
+
+function isPlaying() {
+  return renderer.xr.isPresenting || (mode === 'flat' && menu.classList.contains('hide'));
+}
+
+function updateBots(dt, playing) {
+  const it = players.find(p => p.it);
+  const itPos = it === you ? youPos(youV) : it.pos;
+  const youReachable = playing && rig.position.y < 0.9;
+  if (youReachable) youPos(youV);
+  for (const b of bots) {
+    let tx, tz, speed;
+    if (b.it) {
+      let best = null, bd = Infinity;
+      if (youReachable) {
+        bd = (youV.x - b.pos.x) ** 2 + (youV.z - b.pos.z) ** 2;
+        best = youV;
+      }
+      for (const o of bots) {
+        if (o === b) continue;
+        const d = (o.pos.x - b.pos.x) ** 2 + (o.pos.z - b.pos.z) ** 2;
+        if (d < bd) { bd = d; best = o.pos; }
+      }
+      tx = best.x - b.pos.x;
+      tz = best.z - b.pos.z;
+      speed = 3.3;
+    } else {
+      b.turnIn -= dt;
+      if (b.turnIn < 0) {
+        b.heading += (rand() - 0.5) * 2.4;
+        b.turnIn = 1 + rand() * 2;
+      }
+      tx = Math.sin(b.heading);
+      tz = Math.cos(b.heading);
+      speed = 1.5;
+      const dx = b.pos.x - itPos.x, dz = b.pos.z - itPos.z, d = Math.hypot(dx, dz) || 1;
+      if (d < 8 && (it !== you || playing)) {
+        const w = ((8 - d) / 8) * 3;
+        tx += (dx / d) * w;
+        tz += (dz / d) * w;
+        speed = 2.9;
+      }
+    }
+    if (Math.abs(b.pos.x) > R - 3) tx -= Math.sign(b.pos.x) * 1.5;
+    if (Math.abs(b.pos.z) > R - 3) tz -= Math.sign(b.pos.z) * 1.5;
+    const l = Math.hypot(tx, tz) || 1;
+    const k = 1 - Math.exp(-5 * dt);
+    b.dir.x += (tx / l - b.dir.x) * k;
+    b.dir.z += (tz / l - b.dir.z) * k;
+    const dl = Math.hypot(b.dir.x, b.dir.z) || 1;
+    b.dir.x /= dl;
+    b.dir.z /= dl;
+    b.pos.x += b.dir.x * speed * dt;
+    b.pos.z += b.dir.z * speed * dt;
+    pushOutFlat(b.pos, 0.36);
+    b.phase += dt * speed * 3.2;
+    const hop = Math.abs(Math.sin(b.phase));
+    b.pos.y = 0.36 + hop * 0.22;
+    b.g.position.copy(b.pos);
+    b.g.rotation.y = Math.atan2(b.dir.x, b.dir.z);
+    const squash = 1 - hop;
+    b.body.scale.set(1 + 0.08 * squash, 1 - 0.1 * squash, 1 + 0.08 * squash);
+    const swing = Math.sin(b.phase) * 0.2;
+    b.paws[0].position.set(-0.38, -0.12 + swing * 0.4, swing);
+    b.paws[1].position.set(0.38, -0.12 - swing * 0.4, -swing);
+  }
+}
+
+function setIt(target, by) {
+  for (const p of players) p.it = p === target;
+  if (by) by.tags++;
+  for (const b of bots) {
+    b.mat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
+    b.mat.emissive.setHex(b.it ? 0x3a0e00 : 0x000000);
+  }
+  handMat.color.setHex(you.it ? IT_RED : MINE);
+  tagLock = performance.now() + 1200;
+  if (by === you) {
+    blip(660, 0.14, 'triangle', 0.3, 1.6);
+    buzz(0.6, 80);
+  } else if (target === you) {
+    blip(520, 0.3, 'square', 0.16, 0.45);
+    buzz(1, 220);
+  } else if (by) {
+    blip(380, 0.06, 'sine', 0.05, 0.8);
+  }
+  board.redraw();
+  wristPaint.redraw();
+}
+
+function checkTags(now, playing) {
+  if (now < tagLock) return;
+  const it = players.find(p => p.it);
+  if (it === you) {
+    if (!playing) return;
+    for (const b of bots) {
+      let touched = false;
+      if (renderer.xr.isPresenting) {
+        touched = hands.some(h => h.mesh.visible && h.vis.distanceTo(b.pos) < 0.47);
+      } else {
+        headPos(headV);
+        touched = Math.hypot(headV.x - b.pos.x, headV.z - b.pos.z) < 1.05 && Math.abs(rig.position.y - (b.pos.y - 0.36)) < 1;
+      }
+      if (touched) return setIt(b, you);
+    }
+    return;
+  }
+  if (playing && rig.position.y < 0.9) {
+    youPos(youV);
+    if (Math.hypot(youV.x - it.pos.x, youV.z - it.pos.z) < 0.7) return setIt(you, it);
+  }
+  for (const b of bots) {
+    if (b !== it && b.pos.distanceTo(it.pos) < 0.75) return setIt(b, it);
+  }
+}
+
+const menu = document.getElementById('menu');
+const hud = document.getElementById('hud');
+const dot = document.getElementById('dot');
+const vrBtn = document.getElementById('vr');
+const flatBtn = document.getElementById('flat');
+const note = document.getElementById('note');
+
+function showMenu() {
+  menu.classList.remove('hide');
+  hud.style.display = 'none';
+  dot.style.display = 'none';
+  if (mode === 'flat') flatBtn.textContent = 'Resume on desktop';
+}
+
+flatBtn.addEventListener('click', () => {
+  wakeAudio();
+  if (mode !== 'flat') {
+    mode = 'flat';
+    rig.rotation.y = 0;
+    camera.position.set(0, 1.6, 0);
+  }
+  menu.classList.add('hide');
+  hud.style.display = 'block';
+  dot.style.display = 'block';
+  try {
+    const p = renderer.domElement.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+});
+
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && mode === 'flat' && !renderer.xr.isPresenting) showMenu();
+});
+
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.code === 'Escape' && mode === 'flat' && !document.pointerLockElement) showMenu();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('mousemove', e => {
+  if (mode !== 'flat' || !menu.classList.contains('hide')) return;
+  if (!document.pointerLockElement && !(e.buttons & 1)) return;
+  yaw -= e.movementX * 0.0025;
+  pitch = clamp(pitch - e.movementY * 0.0025, -1.5, 1.5);
+});
+
+async function checkVR() {
+  let ok = false;
+  try { ok = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); } catch (e) { ok = false; }
+  vrBtn.disabled = !ok;
+  vrBtn.textContent = ok ? 'Enter VR' : 'VR not available here';
+  if (!ok) note.textContent = 'Open this page in your headset browser (Quest Browser works) to play in VR.';
+}
+checkVR();
+
+vrBtn.addEventListener('click', async () => {
+  wakeAudio();
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+    await renderer.xr.setSession(session);
+    if (document.pointerLockElement) document.exitPointerLock();
+    mode = 'vr';
+    rig.rotation.y = 0;
+    respawn();
+    menu.classList.add('hide');
+    hud.style.display = 'none';
+    dot.style.display = 'none';
+    session.addEventListener('end', () => {
+      mode = 'menu';
+      for (const h of hands) { h.mesh.visible = false; h.touching = false; }
+      camera.position.set(0, 1.6, 0);
+      camera.rotation.set(0, 0, 0);
+      flatBtn.textContent = 'Play on desktop';
+      showMenu();
+    });
+  } catch (err) {
+    note.textContent = `Couldn't start VR: ${err.message || err}`;
+  }
+});
+
+addEventListener('resize', () => {
+  if (renderer.xr.isPresenting) return;
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+setIt(bots[Math.floor(rand() * bots.length)], null);
+
+let last = performance.now();
+let boardTimer = 0;
+let hudText = '';
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  const playing = isPlaying();
+  if (renderer.xr.isPresenting) vrMove(dt, now);
+  else if (mode === 'flat') flatMove(dt);
+  else {
+    yaw += dt * 0.06;
+    camera.rotation.set(-0.08, yaw, 0);
+  }
+  updateBots(dt, playing);
+  checkTags(now, playing);
+  if (playing && !you.it) you.runTime += dt;
+  boardTimer += dt;
+  if (boardTimer > 0.5) {
+    boardTimer = 0;
+    board.redraw();
+    if (renderer.xr.isPresenting) wristPaint.redraw();
+  }
+  if (mode === 'flat') {
+    const it = players.find(p => p.it);
+    const text = you.it ? "You're it — go tag a Ploop!" : `Run! ${it.name} is it`;
+    if (text !== hudText) {
+      hudText = text;
+      hud.textContent = text;
+      hud.classList.toggle('it', you.it);
+    }
+  }
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
