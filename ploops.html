@@ -3102,8 +3102,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
   }
   btn(300, 520, 200, 60, 'close', 'close', false, '#3a4a46');
 });
-const watchPanel = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: watchPaint.tex, transparent: true, depthTest: false }));
-watchPanel.renderOrder = 10;
+const watchPanel = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: watchPaint.tex, transparent: true }));
 watchPanel.visible = false;
 scene.add(watchPanel);
 const fingertip = new V();
