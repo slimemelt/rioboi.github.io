@@ -45,6 +45,7 @@ button:disabled{opacity:.45;cursor:default}
     <input id="room" maxlength="16" placeholder="room" autocomplete="off" spellcheck="false">
     <label><input type="checkbox" id="online" checked> online</label>
     <label><input type="checkbox" id="voice"> voice chat</label>
+    <label><input type="checkbox" id="brawlBox"> brawl mode</label>
   </div>
   <div class="swatches" id="swatches">
   </div>
@@ -54,11 +55,11 @@ button:disabled{opacity:.45;cursor:default}
   </div>
   <ul class="how">
     <li><b>VR</b> — left stick to walk, hold left trigger to sprint, A to jump, right stick to turn. X opens your watch: name, color, room, mode, weapons and sound.</li>
-    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
+    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, M to switch between ploops and brawl, Esc to pause.</li>
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
     <li><b>Chainsaw</b> — press B in VR to cycle blaster, chainsaw and knives. Rev the chainsaw with the trigger; for knives, squeeze the trigger and let go mid-swing to throw. Desktop: 1 blaster, 2 chainsaw, 3 knives.</li>
-    <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: click to punch.</li>
+    <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: tick brawl mode in this menu or press M, then click to punch.</li>
   </ul>
   <p id="netline">offline</p>
   <p id="note"></p>
@@ -2129,6 +2130,8 @@ function deskKey(code) {
     biteBot(deskHold, performance.now());
   } else if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3') {
     setWeapon(code === 'Digit2' ? 'saw' : code === 'Digit3' ? 'knife' : 'gun');
+  } else if (code === 'KeyM') {
+    requestMode(gameMode === 'brawl' ? 'ploops' : 'brawl');
   } else if (code === 'KeyR' && deskHold && !deskRip) {
     const b = deskHold;
     ripBot(b, camera.localToWorld(new V(-0.06, -0.2, -0.6)), camera.localToWorld(new V(0.06, -0.2, -0.6)), null, null);
@@ -2554,6 +2557,7 @@ function showBanner(text, ms = 1600) {
 function setMode(md) {
   if ((md !== 'ploops' && md !== 'brawl') || md === gameMode) return;
   gameMode = md;
+  brawlBox.checked = md === 'brawl';
   koUntil = 0;
   lastHit = null;
   respawn();
@@ -2563,6 +2567,9 @@ function setMode(md) {
   wristPaint.redraw();
   watchPaint.redraw();
 }
+
+const brawlBox = document.getElementById('brawlBox');
+brawlBox.addEventListener('change', () => requestMode(brawlBox.checked ? 'brawl' : 'ploops'));
 
 function requestMode(md) {
   if (net.role === 'client') {
