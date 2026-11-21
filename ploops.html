@@ -49,9 +49,9 @@ button:disabled{opacity:.45;cursor:default}
   <ul class="how">
     <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
-    <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
-    <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back. They're armed too, and they hate each other.</li>
+    <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
+    <li><b>Chainsaw</b> — press A in VR to swap between blaster and chainsaw, hold the trigger to rev it into Ploops. Desktop: 1 blaster, 2 chainsaw, hold click to rev.</li>
   </ul>
   <p id="netline">offline</p>
   <p id="note"></p>
@@ -63,7 +63,7 @@ button:disabled{opacity:.45;cursor:default}
 <script>
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
-const R = 22;
+const R = 40;
 const HAND_R = 0.085;
 const IT_RED = 0xff4b2b;
 const MINE = 0x3fd0c9;
@@ -83,7 +83,7 @@ document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const skyColor = new THREE.Color(0x9fd8f0);
 scene.background = skyColor;
-scene.fog = new THREE.Fog(skyColor, 20, 60);
+scene.fog = new THREE.Fog(skyColor, 28, 100);
 scene.add(new THREE.HemisphereLight(0xe6f7ff, 0x5b4a3a, 0.95));
 const sun = new THREE.DirectionalLight(0xfff0d2, 0.75);
 sun.position.set(8, 20, 6);
@@ -115,12 +115,16 @@ box(0, -0.5, 0, R * 2 + 6, 1, R * 2 + 6, 0x74c35e, 190);
 for (const [x, z, w, d] of [[0, -R - 1, R * 2 + 4, 2], [0, R + 1, R * 2 + 4, 2], [-R - 1, 0, 2, R * 2 + 4], [R + 1, 0, 2, R * 2 + 4]]) {
   box(x, 3, z, w, 6, d, 0x8a6a48, 150);
 }
-for (let i = 0; i < 46; i++) {
+for (let i = 0; i < 130; i++) {
   const s = 0.8 + rand() * 2.2;
   box((rand() - 0.5) * R * 1.9, 0.005, (rand() - 0.5) * R * 1.9, s, 0.01, s * (0.6 + rand() * 0.8), rand() > 0.5 ? 0x68b553 : 0x82cc69);
 }
 
 const treeSpots = [[-9, -6], [8, -10], [-13, 9], [12, 6], [1, -16], [-17, -13], [16, -16], [-4, 15], [17, 15], [-18, 1], [6, 13], [-7, -17]];
+for (let i = 0; i < 30; i++) {
+  const a = rand() * Math.PI * 2, d = 21 + rand() * (R - 24);
+  treeSpots.push([Math.cos(a) * d, Math.sin(a) * d]);
+}
 for (const [x, z] of treeSpots) {
   const h = 6 + rand() * 3;
   box(x, h / 2, z, 0.9, h, 0.9, 0x7b5233, 150);
@@ -148,13 +152,27 @@ for (const [x, z, w, h, d] of [[6, 2, 1.6, 0.9, 1.4], [-6, 4, 1.2, 1.0, 1.8], [9
   box(x, h / 2, z, w, h, d, 0x9aa0a6, 420);
 }
 box(-5, 0.4, -9, 5, 0.8, 0.8, 0x6d4a2c, 170);
+for (let i = 0; i < 14; i++) {
+  const a = rand() * Math.PI * 2, d = 20 + rand() * (R - 23);
+  const w = 1 + rand() * 2, h = 0.8 + rand() * 1.6, dd = 1 + rand() * 2;
+  box(Math.cos(a) * d, h / 2, Math.sin(a) * d, w, h, dd, 0x9aa0a6, 420);
+}
+for (let i = 0; i < 6; i++) {
+  const a = rand() * Math.PI * 2, d = 20 + rand() * (R - 23);
+  const along = rand() < 0.5;
+  box(Math.cos(a) * d, 0.4, Math.sin(a) * d, along ? 5 : 0.8, 0.8, along ? 0.8 : 5, 0x6d4a2c, 170);
+}
+for (let i = 0; i < 10; i++) {
+  const a = rand() * Math.PI * 2, d = 18 + rand() * (R - 21);
+  box(Math.cos(a) * d, 2.2 + rand() * 3, Math.sin(a) * d, 1.6, 0.25, 1.6, 0xc98a4b, 260);
+}
 box(5, 2.6, -4, 1.6, 0.25, 1.6, 0xc98a4b, 260);
 box(-4.5, 3.2, -3.5, 1.6, 0.25, 1.6, 0xc98a4b, 260);
 box(10, 3.8, 0, 1.4, 0.25, 1.4, 0xc98a4b, 260);
 
 const stemGeo = new THREE.CylinderGeometry(0.05, 0.07, 0.26, 8);
 const capGeo = new THREE.SphereGeometry(0.17, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-for (let i = 0; i < 18; i++) {
+for (let i = 0; i < 50; i++) {
   const x = (rand() - 0.5) * R * 1.8, z = (rand() - 0.5) * R * 1.8;
   if (Math.hypot(x, z) < 4) continue;
   const stem = new THREE.Mesh(stemGeo, lambert(0xf3ead6));
@@ -173,7 +191,7 @@ for (let i = 0; i < 9; i++) {
     g.add(m);
   }
   const a = rand() * Math.PI * 2;
-  g.position.set(Math.cos(a) * 30, 17 + rand() * 6, Math.sin(a) * 30);
+  g.position.set(Math.cos(a) * 55, 20 + rand() * 8, Math.sin(a) * 55);
   scene.add(g);
 }
 
@@ -350,7 +368,8 @@ const eyeDark = new THREE.MeshBasicMaterial({ color: 0x1a1a22 });
 const you = { name: 'You', bot: false, it: false, tags: 0, kills: 0, css: '#3fd0c9', runTime: 0 };
 const crew = [
   ['Bloop', 0xffb347, '#ffb347'], ['Squish', 0x9b7bff, '#9b7bff'], ['Gloop', 0x5ad1ff, '#5ad1ff'],
-  ['Plonk', 0xff7bc5, '#ff7bc5'], ['Dribs', 0xc6e85a, '#c6e85a'], ['Wub', 0xffe066, '#ffe066']
+  ['Plonk', 0xff7bc5, '#ff7bc5'], ['Dribs', 0xc6e85a, '#c6e85a'], ['Wub', 0xffe066, '#ffe066'],
+  ['Blorb', 0x9ae66e, '#9ae66e'], ['Squeak', 0xf8a5c2, '#f8a5c2'], ['Mush', 0xc7a17a, '#c7a17a'], ['Gob', 0x7ed6df, '#7ed6df']
 ];
 const bots = crew.map(([name, color, css], i) => {
   const g = new THREE.Group();
@@ -486,9 +505,9 @@ const wristPaint = textCanvas(256, 128, (x, w, h) => {
   x.textAlign = 'center';
   x.textBaseline = 'middle';
   x.font = '700 50px Fredoka, sans-serif';
-  x.fillText(you.it ? "YOU'RE IT" : 'RUN!', w / 2, 50);
+  x.fillText(`${you.kills} splats`, w / 2, 50);
   x.font = '500 28px Fredoka, sans-serif';
-  x.fillText(`${you.tags} tags · ${you.kills} splats`, w / 2, 96);
+  x.fillText(you.weapon === 'saw' ? 'chainsaw' : 'blaster', w / 2, 96);
 });
 const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.06), new THREE.MeshBasicMaterial({ map: wristPaint.tex, transparent: true }));
 wrist.position.set(0, 0.035, 0.06);
@@ -507,10 +526,11 @@ const board = textCanvas(512, 640, (x, w, h) => {
   const it = players.find(p => p.it);
   x.fillStyle = you.it ? '#ff6a4d' : '#fff';
   x.font = '700 40px Fredoka, sans-serif';
-  x.fillText(you.it ? "YOU'RE IT!" : `${it ? it.name : '?'} is it`, w / 2, 160);
+  x.fillStyle = '#fff';
+  x.fillText('splat board', w / 2, 160);
   x.textAlign = 'left';
   x.font = '500 34px Fredoka, sans-serif';
-  const rows = [...players.filter(p => !p.bot), ...bots].slice(0, 8);
+  const rows = [...players.filter(p => !p.bot), ...[...bots].sort((a, b) => (b.kills || 0) - (a.kills || 0))].slice(0, 8);
   rows.forEach((p, i) => {
     const y = 222 + i * 46;
     x.fillStyle = p.it ? '#ff4b2b' : p.css;
@@ -527,7 +547,7 @@ const board = textCanvas(512, 640, (x, w, h) => {
   x.textAlign = 'center';
   x.fillStyle = 'rgba(255,255,255,.6)';
   x.font = '500 28px Fredoka, sans-serif';
-  x.fillText(`running ${fmt(you.runTime)} · ${you.kills} splats`, w / 2, h - 40);
+  x.fillText(`your splats: ${you.kills}`, w / 2, h - 40);
 });
 const boardMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2), new THREE.MeshBasicMaterial({ map: board.tex, transparent: true }));
 boardMesh.position.set(-3.4, 2.1, 6.4);
@@ -541,6 +561,8 @@ const SPAWN = new V(0, 0, 9.5);
 const spawnJitter = new V((Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 2);
 rig.position.copy(SPAWN).add(spawnJitter);
 const vel = new V();
+const knock = new V();
+let noTouchUntil = 0;
 const history = [];
 let wasTouching = false;
 let grounded = true;
@@ -637,6 +659,7 @@ function vrMove(dt, now) {
   let n = 0;
   for (const h of hands) {
     if (!h.src || !h.grip.visible) { h.touching = false; continue; }
+    if (now < noTouchUntil) { h.touching = false; continue; }
     h.speed = h.grip.position.distanceTo(h.lastLocal) / dt;
     h.lastLocal.copy(h.grip.position);
     h.grip.getWorldPosition(h.target);
@@ -709,8 +732,9 @@ function flatMove(dt) {
   const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   tA.set(active ? st : 0, 0, active ? -fw : 0);
   if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2).applyAxisAngle(UP, yaw);
-  vel.x = tA.x;
-  vel.z = tA.z;
+  vel.x = tA.x + knock.x;
+  vel.z = tA.z + knock.z;
+  knock.multiplyScalar(Math.exp(-2.5 * dt));
   if (active && keys.Space && grounded) {
     vel.y = 6.2;
     blip(240, 0.1, 'triangle', 0.12, 1.5);
@@ -729,12 +753,14 @@ function updateBots(dt, playing) {
   const it = players.find(p => p.it);
   const itPos = !it ? youV.set(9999, 0, 9999) : it.bot ? it.pos : humanFlat(it, youV);
   const people = humansInPlay(playing).filter(h => h !== it && humanFeet(h) < 0.9);
+  const scary = humansInPlay(playing);
   for (const b of bots) {
     if (!b.alive) {
       if (performance.now() < b.respawnAt) continue;
       const a = Math.random() * Math.PI * 2;
       b.alive = true;
-      b.pos.set(Math.cos(a) * (R - 4), 0.36, Math.sin(a) * (R - 4));
+      const far = 8 + Math.random() * (R - 12);
+      b.pos.set(Math.cos(a) * far, 0.36, Math.sin(a) * far);
       b.g.visible = true;
       blip(500, 0.12, 'sine', 0.08, 1.8);
     }
@@ -776,33 +802,16 @@ function updateBots(dt, playing) {
       tx = Math.sin(b.heading);
       tz = Math.cos(b.heading);
       speed = 1.5;
-      const dx = b.pos.x - itPos.x, dz = b.pos.z - itPos.z, d = Math.hypot(dx, dz) || 1;
-      if (d < 8 && (it !== you || playing)) {
-        const w = ((8 - d) / 8) * 3;
-        tx += (dx / d) * w;
-        tz += (dz / d) * w;
-        speed = 2.9;
+      for (const h of scary) {
+        humanFlat(h, scareV);
+        const dx = b.pos.x - scareV.x, dz = b.pos.z - scareV.z, d = Math.hypot(dx, dz) || 1;
+        if (d < 7) {
+          const w = ((7 - d) / 7) * 3;
+          tx += (dx / d) * w;
+          tz += (dz / d) * w;
+          speed = 3.1;
+        }
       }
-    }
-    b.scanIn -= dt;
-    if (b.scanIn <= 0) {
-      b.scanIn = 0.3;
-      b.foe = pickFoe(b);
-    }
-    if (b.foe && !b.foe.alive) b.foe = null;
-    if (b.foe && !b.it) {
-      const fx = b.foe.pos.x - b.pos.x, fz = b.foe.pos.z - b.pos.z, fd = Math.hypot(fx, fz) || 1;
-      if (Math.random() < dt * 0.6) b.strafe *= -1;
-      const want = fd > 8 ? 1 : fd < 4 ? -1 : 0;
-      tx = (fx / fd) * want - (fz / fd) * b.strafe * 0.8;
-      tz = (fz / fd) * want + (fx / fd) * b.strafe * 0.8;
-      speed = 2.4;
-    }
-    b.fireIn -= dt;
-    if (b.foe && b.fireIn <= 0) {
-      b.fireIn = 0.5 + Math.random() * 0.9;
-      botShoot(b, b.foe);
-      if (!b.alive) continue;
     }
     if (Math.abs(b.pos.x) > R - 3) tx -= Math.sign(b.pos.x) * 1.5;
     if (Math.abs(b.pos.z) > R - 3) tz -= Math.sign(b.pos.z) * 1.5;
@@ -820,7 +829,7 @@ function updateBots(dt, playing) {
     const hop = Math.abs(Math.sin(b.phase));
     b.pos.y = 0.36 + hop * 0.22;
     b.g.position.copy(b.pos);
-    b.g.rotation.y = b.foe ? Math.atan2(b.foe.pos.x - b.pos.x, b.foe.pos.z - b.pos.z) : Math.atan2(b.dir.x, b.dir.z);
+    b.g.rotation.y = Math.atan2(b.dir.x, b.dir.z);
     const squash = 1 - hop;
     b.body.scale.set(1 + 0.08 * squash, 1 - 0.1 * squash, 1 + 0.08 * squash);
     const swing = Math.sin(b.phase) * 0.2;
@@ -1219,6 +1228,22 @@ function burst(b, push, kind = 'boom') {
     }
     pool(center.x, ground, center.z, 1.3);
     squelch();
+  } else if (kind === 'saw') {
+    const perp = new V().crossVectors(push, UP);
+    if (perp.lengthSq() < 0.01) perp.set(1, 0, 0);
+    perp.normalize();
+    for (const sign of [-1, 1]) {
+      const c = fling(makeHalf(b), center, new V(), b.size, 0.2, perp.clone().multiplyScalar(sign * 3).add(new V(0, 2.5, 0)));
+      c.bleeds = true;
+      c.life = 16;
+    }
+    gore(b, center, push, 10, 26, 12, 6, 6, 0, 5);
+    spray(center, push, 500, 6);
+    spray(center, new V(0, 1, 0), 220, 4);
+    pool(center.x, ground, center.z, 1.4);
+    fountain(center, 2.5);
+    ripSound();
+    squelch();
   } else if (kind === 'rip') {
     gore(b, center, new V(), 10, 22, 14, 5, 6, 0, 4);
     spray(center, push, 300, 4.5);
@@ -1302,26 +1327,8 @@ function shoot(origin, dir) {
   return true;
 }
 
-const botGunGeo = new THREE.BoxGeometry(0.045, 0.07, 0.16);
-const botBarrelGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.12, 10);
 for (const b of bots) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(botGunGeo, gunDark);
-  body.position.set(0, 0.03, -0.04);
-  const tube = new THREE.Mesh(botBarrelGeo, gunDark);
-  tube.rotation.x = Math.PI / 2;
-  tube.position.set(0, 0.045, -0.17);
-  g.add(body, tube);
-  g.scale.setScalar(1.6);
-  g.position.set(0.32, -0.08, 0.3);
-  g.rotation.y = Math.PI;
-  b.g.add(g);
-  b.gun = g;
   b.kills = 0;
-  b.fireIn = 1 + Math.random() * 2;
-  b.scanIn = Math.random() * 0.3;
-  b.foe = null;
-  b.strafe = Math.random() < 0.5 ? -1 : 1;
   b.size = 1;
   b.bites = 0;
   b.biteAt = 0;
@@ -1333,37 +1340,6 @@ for (const b of bots) {
   b.voiceName = '';
 }
 
-const sightDir = new V();
-function canSee(a, b) {
-  sightDir.subVectors(b, a);
-  const dist = sightDir.length();
-  sightDir.divideScalar(dist);
-  shotRay.set(a, sightDir);
-  for (const s of solids) {
-    shotBox.set(s.min, s.max);
-    if (shotRay.intersectBox(shotBox, hitP) && hitP.distanceTo(a) < dist - 0.1) return false;
-  }
-  return true;
-}
-
-function pickFoe(b) {
-  let best = null, bd = 16;
-  for (const o of bots) {
-    if (o === b || !o.alive) continue;
-    const d = o.pos.distanceTo(b.pos);
-    if (d < bd && canSee(b.pos, o.pos)) { best = o; bd = d; }
-  }
-  return best;
-}
-
-function botShoot(b, foe) {
-  b.g.updateMatrixWorld();
-  const from = muzzle.clone().applyMatrix4(b.gun.matrixWorld);
-  const aim = foe.pos.clone().add(new V((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 1.1)).sub(from).normalize();
-  const ear = rig.localToWorld(camera.position.clone());
-  blip(900 + Math.random() * 300, 0.07, 'square', clamp(0.12 / (1 + ear.distanceTo(from) * 0.15), 0.01, 0.1), 0.35);
-  fireRay(from, aim, b);
-}
 
 function vrShoot() {
   const h = hands.find(h => h.src && h.src.handedness === 'right');
@@ -1397,13 +1373,17 @@ renderer.domElement.addEventListener('mousedown', e => {
       if (p && p.catch) p.catch(() => {});
     } catch (err) {}
   }
+  if (you.weapon === 'saw') {
+    sawMouse = true;
+    return;
+  }
   const from = new V();
   camera.getWorldPosition(from);
   const dir = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
   shoot(from.addScaledVector(dir, 0.3).add(new V(0, -0.08, 0)), dir);
 });
 
-const KINDS = ['boom', 'rip', 'eat', 'squish'];
+const KINDS = ['boom', 'rip', 'eat', 'squish', 'saw'];
 const X_AXIS = new V(1, 0, 0);
 const DOWN = new V(0, -1, 0);
 const mouthPos = new V();
@@ -1499,6 +1479,7 @@ function throwBot(b, v) {
   if (v.length() > 16) v.setLength(16);
   if (v.length() > 2.5) voice('panic', b.pos, b);
   b.thrower = you;
+  b.thrownAt = performance.now();
   b.fly = v;
   if (net.role === 'client' && net.host && net.host.open) {
     try { net.host.send({ t: 'throw', i: bots.indexOf(b), v: ra(v) }); } catch (e) {}
@@ -1524,6 +1505,19 @@ function flyStep(b, dt) {
   flyStart.copy(b.pos);
   b.pos.addScaledVector(b.fly, dt);
   const before = holdTmp.copy(b.pos);
+  if (net.role !== 'client' && speed > 4) {
+    for (const h of humansInPlay(isPlaying())) {
+      if (h === b.thrower && performance.now() - b.thrownAt < 500) continue;
+      humanHead(h, tagHead);
+      tagBody.set(tagHead.x, humanFeet(h) + 0.45, tagHead.z);
+      if (b.pos.distanceTo(tagHead) < 0.55 || b.pos.distanceTo(tagBody) < 0.6) {
+        knockHuman(h, b.fly.clone().multiplyScalar(0.75).add(new V(0, 2.5, 0)));
+        b.fly.multiplyScalar(-0.3);
+        voice('panic', b.pos, b);
+        break;
+      }
+    }
+  }
   if (pushOut(b.pos, 0.36)) {
     flyN.subVectors(b.pos, before).normalize();
     const vn = b.fly.dot(flyN);
@@ -1788,6 +1782,9 @@ function deskKey(code) {
     deskHold.squishT = 0;
   } else if (code === 'KeyF' && deskHold) {
     biteBot(deskHold, performance.now());
+  } else if (code === 'Digit1' || code === 'Digit2') {
+    const want = code === 'Digit2' ? 'saw' : 'gun';
+    if (you.weapon !== want) swapWeapon();
   } else if (code === 'KeyR' && deskHold && !deskRip) {
     const b = deskHold;
     ripBot(b, camera.localToWorld(new V(-0.06, -0.2, -0.6)), camera.localToWorld(new V(0.06, -0.2, -0.6)), null, null);
@@ -1906,6 +1903,152 @@ function interact(dt, now) {
   updateTether(dt);
   updateFountains(dt);
   stainHands(dt);
+}
+
+you.weapon = 'gun';
+let swapWas = false;
+let sawMouse = false;
+addEventListener('mouseup', () => { sawMouse = false; });
+const sawOrange = new THREE.MeshLambertMaterial({ color: 0xf07a1a });
+const sawMetal = new THREE.MeshLambertMaterial({ color: 0xb8bec6 });
+const sawDark = new THREE.MeshLambertMaterial({ color: 0x2a2a2e });
+const saw = new THREE.Group();
+const motor = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.17), sawOrange);
+motor.position.set(0, 0.03, 0.03);
+const sawHandle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 12, Math.PI), sawDark);
+sawHandle.position.set(0, 0.09, 0.02);
+sawHandle.rotation.y = Math.PI / 2;
+const sawBar = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.06, 0.5), sawMetal);
+sawBar.position.set(0, 0.02, -0.31);
+const sawChain = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.072, 0.52), sawDark);
+sawChain.position.set(0, 0.02, -0.31);
+const sawNose = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.022, 12), sawDark);
+sawNose.rotation.z = Math.PI / 2;
+sawNose.position.set(0, 0.02, -0.57);
+saw.add(motor, sawHandle, sawChain, sawBar, sawNose);
+saw.visible = false;
+scene.add(saw);
+const sawBase = new V(0, 0.02, -0.08);
+const sawTip = new V(0, 0.02, -0.58);
+const sawLine = new THREE.Line3();
+const sawNear = new V();
+const sawHold = new V();
+let engine = null;
+
+function engineSound(level) {
+  if (!ac) return;
+  if (!engine) {
+    if (!level) return;
+    const a = ac.createOscillator(), b = ac.createOscillator();
+    a.type = 'sawtooth';
+    b.type = 'square';
+    const f = ac.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 1400;
+    const g = ac.createGain();
+    g.gain.value = 0;
+    a.connect(f);
+    b.connect(f);
+    f.connect(g).connect(ac.destination);
+    a.start();
+    b.start();
+    engine = { a, b, g };
+  }
+  const t = ac.currentTime;
+  const hz = 42 + level * 90 + Math.random() * 6;
+  engine.g.gain.setTargetAtTime(level * 0.16, t, 0.05);
+  engine.a.frequency.setTargetAtTime(hz, t, 0.06);
+  engine.b.frequency.setTargetAtTime(hz * 1.5 + Math.random() * 8, t, 0.06);
+}
+
+function swapWeapon() {
+  you.weapon = you.weapon === 'saw' ? 'gun' : 'saw';
+  blip(you.weapon === 'saw' ? 180 : 700, 0.12, 'square', 0.12, 1.4);
+  wristPaint.redraw();
+}
+
+function applyKnock(v) {
+  if (v.length() > 12) v.setLength(12);
+  if (renderer.xr.isPresenting) {
+    vel.copy(v);
+    history.length = 0;
+    wasTouching = false;
+    for (const h of hands) h.touching = false;
+    noTouchUntil = performance.now() + 250;
+  } else {
+    knock.set(v.x, 0, v.z);
+    vel.y = Math.max(vel.y, v.y);
+  }
+  buzz(1, 200);
+  noiseBurst(0.25, 'lowpass', 260, 1.2);
+}
+
+function knockHuman(h, v) {
+  if (h === you) {
+    applyKnock(v);
+    return;
+  }
+  const c = net.conns.get(h.id);
+  if (c && c.open) {
+    try { c.send({ t: 'knock', v: ra(v) }); } catch (e) {}
+  }
+}
+
+function sawCut(reach, slack) {
+  saw.updateMatrixWorld();
+  sawLine.start.copy(sawBase).applyMatrix4(saw.matrixWorld);
+  sawLine.end.copy(sawTip).multiplyScalar(reach).applyMatrix4(saw.matrixWorld);
+  for (const b of bots) {
+    if (!b.alive) continue;
+    sawLine.closestPointToPoint(b.pos, true, sawNear);
+    if (sawNear.distanceTo(b.pos) > 0.38 * b.size + slack) continue;
+    const push = b.pos.clone().sub(sawNear);
+    if (push.lengthSq() < 0.0001) push.set(0, 1, 0);
+    killBot(b, 'saw', push.normalize());
+  }
+}
+
+function weapons(dt) {
+  const vr = renderer.xr.isPresenting;
+  let rev = false, active = false;
+  if (vr) {
+    const h = hands.find(x => x.src && x.src.handedness === 'right');
+    const gp = h && h.src.gamepad;
+    const a = !!(gp && gp.buttons[4] && gp.buttons[4].pressed);
+    if (a && !swapWas) swapWeapon();
+    swapWas = a;
+    if (you.weapon === 'gun') {
+      saw.visible = false;
+      vrShoot();
+    } else {
+      gun.visible = false;
+      if (!h || !h.mesh.visible || h.hold || h.half) saw.visible = false;
+      else {
+        saw.visible = true;
+        active = true;
+        saw.position.copy(h.mesh.position);
+        saw.quaternion.copy(h.mesh.quaternion);
+        rev = !!(gp && gp.buttons[0] && gp.buttons[0].value > 0.3);
+        if (rev) pulse(h, 0.25 + Math.random() * 0.25, 20);
+      }
+    }
+  } else {
+    gun.visible = false;
+    saw.visible = mode === 'flat' && you.weapon === 'saw';
+    if (saw.visible) {
+      active = true;
+      camera.updateMatrixWorld();
+      saw.position.copy(camera.localToWorld(sawHold.set(0.2, -0.3, -0.35)));
+      camera.getWorldQuaternion(saw.quaternion);
+      saw.rotateX(-0.25);
+      rev = sawMouse && menu.classList.contains('hide');
+    }
+  }
+  engineSound(active ? (rev ? 1 : 0.22) : 0);
+  if (!active) return;
+  sawChain.position.z = -0.31 + (rev ? (Math.random() - 0.5) * 0.012 : 0);
+  saw.position.x += rev ? (Math.random() - 0.5) * 0.004 : 0;
+  if (rev) sawCut(vr ? 1 : 2.3, vr ? 0 : 0.15);
 }
 
 const menu = document.getElementById('menu');
@@ -2243,6 +2386,7 @@ function hostReceive(id, m) {
     b.fly = new V().fromArray(m.v);
     if (b.fly.length() > 16) b.fly.setLength(16);
     b.thrower = r;
+    b.thrownAt = performance.now();
   } else if (m.t === 'f' && r && okVec(m.o) && okVec(m.d)) {
     const now = performance.now();
     if (now - r.lastShot < 140) return;
@@ -2316,6 +2460,8 @@ function clientReceive(m) {
     }
     for (const id of [...remotes.keys()]) if (!seen.has(id)) removeRemote(id);
     applyIt(m.it);
+  } else if (m.t === 'knock' && okVec(m.v)) {
+    applyKnock(new V().fromArray(m.v));
   } else if (m.t === 'boom') {
     const b = bots[m.i];
     if (b && b.alive && okVec(m.d)) burst(b, new V().fromArray(m.d), KINDS.includes(m.k) ? m.k : 'boom');
@@ -2480,7 +2626,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-setIt(bots[Math.floor(rand() * bots.length)], null);
+board.redraw();
 
 let last = performance.now();
 let boardTimer = 0;
@@ -2496,13 +2642,11 @@ renderer.setAnimationLoop(() => {
     yaw += dt * 0.06;
     camera.rotation.set(-0.08, yaw, 0);
   }
-  if (renderer.xr.isPresenting) vrShoot();
-  else gun.visible = false;
+  weapons(dt);
   interact(dt, now);
   if (net.role === 'client') mirrorBots(dt);
   else {
     updateBots(dt, playing);
-    checkTags(now, playing);
   }
   updateRemotes(dt);
   updateChunks(dt);
@@ -2510,7 +2654,7 @@ renderer.setAnimationLoop(() => {
   updateTracers(dt);
   updatePools(dt);
   updateMists(dt);
-  if (playing && !you.it) you.runTime += dt;
+  if (playing) you.runTime += dt;
   boardTimer += dt;
   if (boardTimer > 0.5) {
     boardTimer = 0;
@@ -2518,8 +2662,7 @@ renderer.setAnimationLoop(() => {
     if (renderer.xr.isPresenting) wristPaint.redraw();
   }
   if (mode === 'flat') {
-    const it = players.find(p => p.it);
-    const text = you.it ? "You're it — go tag someone!" : `Run! ${it ? it.name : 'nobody'} is it`;
+    const text = `${you.kills} splats · ${you.weapon === 'saw' ? 'chainsaw' : 'blaster'}`;
     if (text !== hudText) {
       hudText = text;
       hud.textContent = text;
