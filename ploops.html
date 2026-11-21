@@ -106,6 +106,7 @@ const lambert = c => {
 function box(x, y, z, w, h, d, color, pitch = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lambert(color));
   m.position.set(x, y, z);
+  m.userData.still = true;
   scene.add(m);
   if (pitch) solids.push({ min: new V(x - w / 2, y - h / 2, z - d / 2), max: new V(x + w / 2, y + h / 2, z + d / 2), pitch });
   return m;
@@ -179,6 +180,8 @@ for (let i = 0; i < 50; i++) {
   stem.position.set(x, 0.13, z);
   const cap = new THREE.Mesh(capGeo, lambert(rand() > 0.4 ? 0xe2533f : 0xf0b84a));
   cap.position.set(x, 0.24, z);
+  stem.userData.still = true;
+  cap.userData.still = true;
   scene.add(stem, cap);
 }
 
@@ -187,6 +190,7 @@ for (let i = 0; i < 9; i++) {
   const g = new THREE.Group();
   for (let j = 0; j < 3; j++) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(3 + rand() * 3, 1.2 + rand(), 2 + rand() * 2), cloudMat);
+    m.userData.still = true;
     m.position.set(j * 2 - 2, rand() * 0.6, rand() - 0.5);
     g.add(m);
   }
@@ -195,11 +199,72 @@ for (let i = 0; i < 9; i++) {
   scene.add(g);
 }
 
+const CELL = 4;
+const cells = new Map();
+const nearby = [];
+let stamp = 0;
+const cellKey = (ix, iz) => (ix + 512) * 2048 + iz + 512;
+for (const b of solids) {
+  for (let ix = Math.floor(b.min.x / CELL); ix <= Math.floor(b.max.x / CELL); ix++) {
+    for (let iz = Math.floor(b.min.z / CELL); iz <= Math.floor(b.max.z / CELL); iz++) {
+      const k = cellKey(ix, iz);
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(b);
+    }
+  }
+  b.stamp = 0;
+}
+function near(x0, z0, x1, z1) {
+  nearby.length = 0;
+  stamp++;
+  for (let ix = Math.floor(x0 / CELL); ix <= Math.floor(x1 / CELL); ix++) {
+    for (let iz = Math.floor(z0 / CELL); iz <= Math.floor(z1 / CELL); iz++) {
+      const list = cells.get(cellKey(ix, iz));
+      if (!list) continue;
+      for (const b of list) {
+        if (b.stamp === stamp) continue;
+        b.stamp = stamp;
+        nearby.push(b);
+      }
+    }
+  }
+  return nearby;
+}
+
+const stillGroups = new Map();
+const stillMeshes = [];
+scene.traverse(o => { if (o.isMesh && o.userData.still) stillMeshes.push(o); });
+scene.updateMatrixWorld(true);
+for (const m of stillMeshes) {
+  const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+  g.applyMatrix4(m.matrixWorld);
+  if (!stillGroups.has(m.material)) stillGroups.set(m.material, []);
+  stillGroups.get(m.material).push(g);
+  m.parent.remove(m);
+}
+for (const [mat, list] of stillGroups) {
+  let count = 0;
+  for (const g of list) count += g.attributes.position.count;
+  const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3);
+  let at = 0;
+  for (const g of list) {
+    pos.set(g.attributes.position.array, at * 3);
+    nor.set(g.attributes.normal.array, at * 3);
+    at += g.attributes.position.count;
+    g.dispose();
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  merged.computeBoundingSphere();
+  scene.add(new THREE.Mesh(merged, mat));
+}
+
 function pushOut(p, r) {
   let hit = null;
   for (let pass = 0; pass < 3; pass++) {
     let moved = false;
-    for (const b of solids) {
+    for (const b of near(p.x - r, p.z - r, p.x + r, p.z + r)) {
       const cx = clamp(p.x, b.min.x, b.max.x), cy = clamp(p.y, b.min.y, b.max.y), cz = clamp(p.z, b.min.z, b.max.z);
       const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
       const d2 = dx * dx + dy * dy + dz * dz;
@@ -224,7 +289,7 @@ function pushOut(p, r) {
 }
 
 function pushOutFlat(p, r) {
-  for (const b of solids) {
+  for (const b of near(p.x - r, p.z - r, p.x + r, p.z + r)) {
     if (b.max.y < 0.3 || b.min.y > 0.8) continue;
     const cx = clamp(p.x, b.min.x, b.max.x), cz = clamp(p.z, b.min.z, b.max.z);
     const dx = p.x - cx, dz = p.z - cz, d2 = dx * dx + dz * dz;
@@ -244,7 +309,7 @@ function pushOutFlat(p, r) {
 
 function floorAt(x, z, maxTop) {
   let f = -Infinity;
-  for (const b of solids) {
+  for (const b of near(x, z, x, z)) {
     if (x < b.min.x - 0.05 || x > b.max.x + 0.05 || z < b.min.z - 0.05 || z > b.max.z + 0.05) continue;
     if (b.max.y <= maxTop && b.max.y > f) f = b.max.y;
   }
@@ -1008,7 +1073,7 @@ function updateMists(dt) {
 
 const faceNormal = new V();
 function solidAt(p) {
-  for (const b of solids) {
+  for (const b of near(p.x, p.z, p.x, p.z)) {
     if (p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z) return b;
   }
   return null;
@@ -1026,7 +1091,7 @@ function nearestFace(p, b) {
   return faceNormal;
 }
 
-const DROPS = 2400;
+const DROPS = 1800;
 const dropMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.028, 0), new THREE.MeshLambertMaterial({ color: 0xb01010 }), DROPS);
 dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 dropMesh.frustumCulled = false;
@@ -1118,7 +1183,7 @@ function fling(mesh, pos, push, size, radius, vel) {
   const spin = new V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(24);
   const c = { m: mesh, v, spin, life: 9 + Math.random() * 5, size, r: radius * size, bleeds: Math.random() < 0.6 };
   chunks.push(c);
-  if (chunks.length > 320) {
+  if (chunks.length > 170) {
     const old = chunks.shift();
     scene.remove(old.m);
   }
@@ -2656,7 +2721,7 @@ renderer.setAnimationLoop(() => {
   updateMists(dt);
   if (playing) you.runTime += dt;
   boardTimer += dt;
-  if (boardTimer > 0.5) {
+  if (boardTimer > 2) {
     boardTimer = 0;
     board.redraw();
     if (renderer.xr.isPresenting) wristPaint.redraw();
