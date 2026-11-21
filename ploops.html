@@ -2518,6 +2518,7 @@ let koUntil = 0;
 let deskJab = 0;
 const punchCd = new Map();
 const ropeHead = new V();
+let bannerText = '';
 const bannerPaint = textCanvas(512, 128, (x, w, h) => {
   x.clearRect(0, 0, w, h);
   x.font = '700 92px Fredoka, sans-serif';
@@ -2529,7 +2530,6 @@ const bannerPaint = textCanvas(512, 128, (x, w, h) => {
   x.fillStyle = '#ffde59';
   x.fillText(bannerText, w / 2, h / 2);
 });
-let bannerText = '';
 let bannerUntil = 0;
 const banner = new THREE.Sprite(new THREE.SpriteMaterial({ map: bannerPaint.tex, transparent: true, depthTest: false }));
 banner.scale.set(0.8, 0.2, 1);
