@@ -438,7 +438,8 @@ box(-3.4, 0.6, 6.4, 0.14, 1.2, 0.14, 0x7b5233);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => paintQueue.forEach(f => f()));
 
 const SPAWN = new V(0, 0, 9.5);
-rig.position.copy(SPAWN);
+const spawnJitter = new V((Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 2);
+rig.position.copy(SPAWN).add(spawnJitter);
 const vel = new V();
 const history = [];
 let wasTouching = false;
@@ -462,7 +463,7 @@ function youPos(out) {
 }
 
 function respawn() {
-  rig.position.copy(SPAWN);
+  rig.position.copy(SPAWN).add(spawnJitter);
   rig.position.y -= drop;
   vel.set(0, 0, 0);
   history.length = 0;
@@ -1286,7 +1287,7 @@ vrBtn.addEventListener('click', async () => {
     session.addEventListener('end', () => {
       mode = 'menu';
       drop = 0;
-      rig.position.copy(SPAWN);
+      rig.position.copy(SPAWN).add(spawnJitter);
       for (const h of hands) { h.mesh.visible = false; h.touching = false; }
       camera.position.set(0, 1.6, 0);
       camera.rotation.set(0, 0, 0);
@@ -1380,6 +1381,7 @@ function humanHands(h) {
 }
 
 const avatarGeo = new THREE.IcosahedronGeometry(0.22, 2);
+const avatarBodyGeo = new THREE.IcosahedronGeometry(0.28, 2);
 function addRemote(id, name, css) {
   const r = {
     id, name, css, bot: false, remote: true, it: false, tags: 0, kills: 0, alive: true, lastShot: 0,
@@ -1389,6 +1391,10 @@ function addRemote(id, name, css) {
   const g = new THREE.Group();
   const mat = new THREE.MeshLambertMaterial({ color: css });
   g.add(new THREE.Mesh(avatarGeo, mat));
+  const torso = new THREE.Mesh(avatarBodyGeo, mat);
+  torso.position.y = -0.42;
+  torso.scale.set(1, 1.15, 0.9);
+  g.add(torso);
   for (const side of [-1, 1]) {
     const eye = new THREE.Mesh(eyeGeo, eyeWhite);
     eye.position.set(0.08 * side, 0.04, -0.18);
@@ -1472,6 +1478,7 @@ function updateRemotes(dt) {
     r.hands[1].lerp(r.handT[1], k);
     r.av.g.position.copy(r.head);
     r.av.g.rotation.y = r.yaw;
+    r.av.g.children[1].position.y = -Math.min(0.42, Math.max(0.15, r.head.y - r.feet - 0.3));
     r.av.paws[0].position.copy(r.hands[0]);
     r.av.paws[1].position.copy(r.hands[1]);
     r.av.mat.color.set(r.it ? IT_RED : r.css);
@@ -1560,6 +1567,7 @@ function applyIt(key) {
 function clientReceive(m) {
   if (!m || typeof m !== 'object') return;
   if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
+    net.lastSnap = performance.now();
     m.b.forEach((s, i) => {
       const b = bots[i];
       if (!b || !Array.isArray(s)) return;
@@ -1709,6 +1717,7 @@ function joinRoom(hostId, room) {
       if (net.peer !== p) return;
       net.role = 'client';
       net.host = c;
+      net.lastSnap = performance.now();
       netline.textContent = `online · room "${room}"`;
     });
     c.on('data', clientReceive);
@@ -1721,19 +1730,36 @@ function joinRoom(hostId, room) {
   });
 }
 
-function netTick(dt) {
-  net.timer -= dt;
-  if (net.timer > 0) return;
+function netTick() {
+  const now = performance.now();
   if (net.role === 'host' && net.conns.size) {
-    net.timer = 1 / 15;
     broadcast(snapshot());
   } else if (net.role === 'client' && net.host && net.host.open) {
-    net.timer = 1 / 20;
+    if (now - net.lastSnap > 6000) {
+      retry(500 + Math.random() * 1500);
+      return;
+    }
     try { net.host.send(myPose()); } catch (e) {}
-  } else {
-    net.timer = 0.2;
+  }
+  if (net.role !== 'solo') {
+    const count = remotes.size + 1;
+    netline.textContent = `online · room "${net.room}" · ${count} player${count === 1 ? '' : 's'}${net.role === 'host' ? " · you're hosting" : ''}`;
   }
 }
+setInterval(netTick, 66);
+
+let resumeRoom = '';
+document.addEventListener('visibilitychange', () => {
+  if (renderer.xr.isPresenting) return;
+  if (document.hidden && net.peer) {
+    resumeRoom = net.room;
+    goOffline();
+  } else if (!document.hidden && resumeRoom && onlineBox.checked) {
+    const room = resumeRoom;
+    resumeRoom = '';
+    goOnline(room);
+  }
+});
 
 setIt(bots[Math.floor(rand() * bots.length)], null);
 
@@ -1759,7 +1785,6 @@ renderer.setAnimationLoop(() => {
     checkTags(now, playing);
   }
   updateRemotes(dt);
-  netTick(dt);
   updateChunks(dt);
   updateDrops(dt);
   updateTracers(dt);
