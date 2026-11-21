@@ -16,6 +16,11 @@ canvas{display:block}
 h1{font-size:clamp(64px,14vw,132px);font-weight:700;line-height:.9;color:#2fbfa8;text-shadow:0 6px 0 #17322a;letter-spacing:-2px}
 .sub{font-size:20px;font-weight:500;opacity:.8}
 .btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.fields{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+#nick,#room{font:500 18px Fredoka,system-ui,sans-serif;padding:10px 16px;border-radius:999px;border:3px solid #17322a;background:#fff;color:#17322a;width:190px;outline:none}
+#room{width:130px}
+.fields label{font-weight:500;display:flex;gap:6px;align-items:center;cursor:pointer}
+#netline{font-size:15px;font-weight:500;min-height:1em}
 button{font:700 20px Fredoka,system-ui,sans-serif;padding:14px 26px;border:0;border-radius:999px;background:#17322a;color:#fff;cursor:pointer;box-shadow:0 5px 0 #0b1a15;transition:transform .08s}
 button:active{transform:translateY(3px);box-shadow:0 2px 0 #0b1a15}
 button.alt{background:#fff;color:#17322a;box-shadow:0 5px 0 #7aa9b8}
@@ -32,6 +37,11 @@ button:disabled{opacity:.45;cursor:default}
 <div id="menu">
   <h1>Ploops</h1>
   <p class="sub">tag, but you only get arms</p>
+  <div class="fields">
+    <input id="nick" maxlength="14" placeholder="your name" autocomplete="off" spellcheck="false">
+    <input id="room" maxlength="16" placeholder="room" autocomplete="off" spellcheck="false">
+    <label><input type="checkbox" id="online" checked> online</label>
+  </div>
   <div class="btns">
     <button id="vr" disabled>Looking for a headset…</button>
     <button id="flat" class="alt">Play on desktop</button>
@@ -42,11 +52,13 @@ button:disabled{opacity:.45;cursor:default}
     <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back. They're armed too, and they hate each other.</li>
   </ul>
+  <p id="netline">offline</p>
   <p id="note"></p>
 </div>
 <div id="hud"></div>
 <div id="dot"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
@@ -334,7 +346,7 @@ const bots = crew.map(([name, color, css], i) => {
     heading: rand() * Math.PI * 2, turnIn: rand() * 2, phase: rand() * 6
   };
 });
-const players = [you, ...bots];
+let players = [you, ...bots];
 
 const handMat = new THREE.MeshLambertMaterial({ color: MINE });
 const handGeo = new THREE.SphereGeometry(HAND_R, 16, 12);
@@ -398,14 +410,15 @@ const board = textCanvas(512, 640, (x, w, h) => {
   x.fillText(you.it ? "YOU'RE IT!" : `${it ? it.name : '?'} is it`, w / 2, 160);
   x.textAlign = 'left';
   x.font = '500 34px Fredoka, sans-serif';
-  players.forEach((p, i) => {
-    const y = 228 + i * 54;
+  const rows = [...players.filter(p => !p.bot), ...bots].slice(0, 8);
+  rows.forEach((p, i) => {
+    const y = 222 + i * 46;
     x.fillStyle = p.it ? '#ff4b2b' : p.css;
     x.beginPath();
     x.arc(60, y, 16, 0, Math.PI * 2);
     x.fill();
     x.fillStyle = '#fff';
-    x.fillText(p.name, 92, y + 2);
+    x.fillText(p === you ? `${p.name} (you)` : p.name, 92, y + 2);
     x.textAlign = 'right';
     x.fillStyle = 'rgba(255,255,255,.7)';
     x.fillText(p.bot && !p.alive ? 'splat' : `${p.kills || 0} kill${p.kills === 1 ? '' : 's'}`, w - 48, y + 2);
@@ -613,9 +626,8 @@ function isPlaying() {
 
 function updateBots(dt, playing) {
   const it = players.find(p => p.it);
-  const itPos = it === you ? youPos(youV) : it.pos;
-  const youReachable = playing && rig.position.y + drop < 0.9;
-  if (youReachable) youPos(youV);
+  const itPos = !it ? youV.set(9999, 0, 9999) : it.bot ? it.pos : humanFlat(it, youV);
+  const people = humansInPlay(playing).filter(h => h !== it && humanFeet(h) < 0.9);
   for (const b of bots) {
     if (!b.alive) {
       if (performance.now() < b.respawnAt) continue;
@@ -629,9 +641,10 @@ function updateBots(dt, playing) {
     let best = null;
     if (b.it) {
       let bd = Infinity;
-      if (youReachable) {
-        bd = (youV.x - b.pos.x) ** 2 + (youV.z - b.pos.z) ** 2;
-        best = youV;
+      for (const h of people) {
+        const hp = humanFlat(h, h.flat || (h.flat = new V()));
+        const d = (hp.x - b.pos.x) ** 2 + (hp.z - b.pos.z) ** 2;
+        if (d < bd) { bd = d; best = hp; }
       }
       for (const o of bots) {
         if (o === b || !o.alive) continue;
@@ -712,7 +725,7 @@ function setIt(target, by) {
     b.mat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
     b.mat.emissive.setHex(b.it ? 0x3a0e00 : 0x000000);
   }
-  handMat.color.setHex(you.it ? IT_RED : MINE);
+  handMat.color.set(you.it ? IT_RED : you.css);
   tagLock = performance.now() + 1200;
   if (by === you) {
     blip(660, 0.14, 'triangle', 0.3, 1.6);
@@ -727,28 +740,31 @@ function setIt(target, by) {
   wristPaint.redraw();
 }
 
+const tagHead = new V(), tagBody = new V(), tagHand = new V();
 function checkTags(now, playing) {
   if (now < tagLock) return;
   const it = players.find(p => p.it);
-  if (it === you) {
-    if (!playing) return;
+  if (!it) return;
+  const people = humansInPlay(playing);
+  if (!it.bot) {
+    if (it === you && !playing) return;
+    const reach = humanHands(it);
     for (const b of bots) {
-      if (!b.alive) continue;
-      let touched = false;
-      if (renderer.xr.isPresenting) {
-        touched = hands.some(h => h.mesh.visible && h.vis.distanceTo(b.pos) < 0.47);
-      } else {
-        headPos(headV);
-        touched = Math.hypot(headV.x - b.pos.x, headV.z - b.pos.z) < 1.05 && Math.abs(rig.position.y - (b.pos.y - 0.36)) < 1;
-      }
-      if (touched) return setIt(b, you);
+      if (b.alive && reach.some(v => v.distanceTo(b.pos) < 0.47)) return setIt(b, it);
+    }
+    for (const h of people) {
+      if (h === it) continue;
+      humanHead(h, tagHead);
+      tagBody.set(tagHead.x, humanFeet(h) + 0.45, tagHead.z);
+      if (reach.some(v => v.distanceTo(tagHead) < 0.4 || v.distanceTo(tagBody) < 0.5)) return setIt(h, it);
     }
     return;
   }
   if (!it.alive) return;
-  if (playing && rig.position.y + drop < 0.9) {
-    youPos(youV);
-    if (Math.hypot(youV.x - it.pos.x, youV.z - it.pos.z) < 0.7) return setIt(you, it);
+  for (const h of people) {
+    if (humanFeet(h) >= 0.9) continue;
+    humanHead(h, tagHead);
+    if (Math.hypot(tagHead.x - it.pos.x, tagHead.z - it.pos.z) < 0.7) return setIt(h, it);
   }
   for (const b of bots) {
     if (b !== it && b.alive && b.pos.distanceTo(it.pos) < 0.75) return setIt(b, it);
@@ -1022,11 +1038,9 @@ function squelch() {
   blip(110, 0.35, 'sine', 0.45, 0.35);
 }
 
-function explode(b, push, killer) {
+function burst(b, push) {
   b.alive = false;
   b.g.visible = false;
-  b.respawnAt = performance.now() + 6000;
-  if (killer) killer.kills++;
   const center = b.pos.clone();
   b.goreMat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
   scream(center);
@@ -1048,8 +1062,16 @@ function explode(b, push, killer) {
   pool(center.x, ground, center.z, 0.9 + Math.random() * 0.4);
   for (let i = 0; i < 12; i++) splat(center.x + (Math.random() - 0.5) * 1.4, ground, center.z + (Math.random() - 0.5) * 1.4, 0.2 + Math.random() * 0.4);
   squelch();
-  buzz(0.8, 120);
-  if (b.it) {
+}
+
+function explode(b, push, killer) {
+  b.respawnAt = performance.now() + 6000;
+  if (killer) killer.kills++;
+  const wasIt = b.it;
+  burst(b, push);
+  if (killer === you) buzz(0.8, 120);
+  if (net.role === 'host') broadcast({ t: 'boom', i: bots.indexOf(b), d: ra(push) });
+  if (wasIt) {
     const left = bots.filter(o => o.alive);
     setIt(left.length ? left[Math.floor(Math.random() * left.length)] : you, null);
   }
@@ -1080,8 +1102,10 @@ function fireRay(origin, dir, shooter) {
       if (d < best) { best = d; target = b; }
     }
   }
-  tracer(origin, origin.clone().addScaledVector(dir, best));
-  if (target) explode(target, dir, shooter);
+  const end = origin.clone().addScaledVector(dir, best);
+  tracer(origin, end);
+  if (net.role === 'host') broadcast({ t: 'tr', a: ra(origin), b: ra(end), by: shooter === you ? net.myId : shooter.remote ? shooter.id : 'b' });
+  if (target && net.role !== 'client') explode(target, dir, shooter);
   return target;
 }
 
@@ -1092,6 +1116,9 @@ function shoot(origin, dir) {
   flash.visible = gun.visible;
   blip(1100, 0.07, 'square', 0.1, 0.35);
   fireRay(origin, dir, you);
+  if (net.role === 'client' && net.host && net.host.open) {
+    try { net.host.send({ t: 'f', o: ra(origin), d: ra(dir) }); } catch (e) {}
+  }
   return true;
 }
 
@@ -1199,6 +1226,7 @@ function showMenu() {
 
 flatBtn.addEventListener('click', () => {
   wakeAudio();
+  applyMenu();
   if (mode !== 'flat') {
     mode = 'flat';
     rig.rotation.y = 0;
@@ -1218,6 +1246,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 addEventListener('keydown', e => {
+  if (e.target instanceof HTMLInputElement) return;
   keys[e.code] = true;
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   if (e.code === 'Escape' && mode === 'flat' && !document.pointerLockElement) showMenu();
@@ -1242,6 +1271,7 @@ checkVR();
 
 vrBtn.addEventListener('click', async () => {
   wakeAudio();
+  applyMenu();
   try {
     const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
     await renderer.xr.setSession(session);
@@ -1275,6 +1305,436 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+const PALETTE = ['#3fd0c9', '#ff9f43', '#a29bfe', '#55efc4', '#fd79a8', '#74b9ff', '#ffeaa7', '#81ecec'];
+const remotes = new Map();
+const net = { role: 'solo', peer: null, host: null, conns: new Map(), room: '', myId: '', retry: 0, timer: 0 };
+const nickInput = document.getElementById('nick');
+const roomInput = document.getElementById('room');
+const onlineBox = document.getElementById('online');
+const netline = document.getElementById('netline');
+const r3 = n => Math.round(n * 1000) / 1000;
+const ra = v => [r3(v.x), r3(v.y), r3(v.z)];
+const okVec = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
+const safeColor = c => PALETTE.includes(c) ? c : PALETTE[0];
+
+function stored(k) {
+  try { return localStorage.getItem(k) || ''; } catch (e) { return ''; }
+}
+function store(k, v) {
+  try { localStorage.setItem(k, v); } catch (e) {}
+}
+function cleanName(n) {
+  return String(n || '').replace(/[^\w .!?'-]/g, '').trim().slice(0, 14);
+}
+
+you.css = stored('ploops-color') || PALETTE[Math.floor(Math.random() * PALETTE.length)];
+store('ploops-color', you.css);
+you.name = cleanName(stored('ploops-name')) || `Ploop${100 + Math.floor(Math.random() * 900)}`;
+nickInput.value = you.name;
+roomInput.value = stored('ploops-room') || 'main';
+handMat.color.set(you.css);
+
+function applyMenu() {
+  you.name = cleanName(nickInput.value) || you.name;
+  nickInput.value = you.name;
+  store('ploops-name', you.name);
+  const room = roomInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 16) || 'main';
+  roomInput.value = room;
+  store('ploops-room', room);
+  if (onlineBox.checked) goOnline(room);
+  else goOffline();
+  board.redraw();
+  wristPaint.redraw();
+}
+
+function rebuildPlayers() {
+  players = [you, ...bots, ...remotes.values()];
+}
+
+function humansInPlay(playing) {
+  const list = playing ? [you] : [];
+  for (const r of remotes.values()) list.push(r);
+  return list;
+}
+function humanHead(h, out) {
+  return h === you ? headPos(out) : out.copy(h.head);
+}
+function humanFeet(h) {
+  return h === you ? rig.position.y + drop : h.feet;
+}
+function humanFlat(h, out) {
+  humanHead(h, out);
+  out.y = humanFeet(h);
+  return out;
+}
+const flatHands = [new V(), new V()];
+function humanHands(h) {
+  if (h !== you) return h.hands;
+  if (renderer.xr.isPresenting) return hands.filter(x => x.mesh.visible).map(x => x.vis);
+  headPos(tagHand);
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const y = rig.position.y + drop + 0.45;
+  flatHands[0].set(tagHand.x + fx * 0.6 - rx * 0.2, y, tagHand.z + fz * 0.6 - rz * 0.2);
+  flatHands[1].set(tagHand.x + fx * 0.6 + rx * 0.2, y, tagHand.z + fz * 0.6 + rz * 0.2);
+  return flatHands;
+}
+
+const avatarGeo = new THREE.IcosahedronGeometry(0.22, 2);
+function addRemote(id, name, css) {
+  const r = {
+    id, name, css, bot: false, remote: true, it: false, tags: 0, kills: 0, alive: true, lastShot: 0,
+    head: new V(0, -10, 0), target: new V(0, -10, 0), yaw: 0, hands: [new V(), new V()], handT: [new V(), new V()],
+    feet: 0, seen: performance.now()
+  };
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: css });
+  g.add(new THREE.Mesh(avatarGeo, mat));
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeWhite);
+    eye.position.set(0.08 * side, 0.04, -0.18);
+    const pupil = new THREE.Mesh(pupilGeo, eyeDark);
+    pupil.position.z = -0.05;
+    eye.add(pupil);
+    g.add(eye);
+  }
+  const label = textCanvas(256, 72, (x, w, h) => {
+    x.clearRect(0, 0, w, h);
+    x.font = '700 40px Fredoka, sans-serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.lineWidth = 8;
+    x.strokeStyle = 'rgba(0,0,0,.55)';
+    x.strokeText(r.name, w / 2, h / 2 + 2);
+    x.fillStyle = '#fff';
+    x.fillText(r.name, w / 2, h / 2 + 2);
+  });
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: label.tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(0.75, 0.21, 1);
+  sprite.position.y = 0.42;
+  g.add(sprite);
+  scene.add(g);
+  const paws = [0, 1].map(() => {
+    const m = new THREE.Mesh(handGeo, mat);
+    m.scale.set(1, 0.8, 1.25);
+    scene.add(m);
+    return m;
+  });
+  r.av = { g, mat, paws, label, sprite };
+  remotes.set(id, r);
+  rebuildPlayers();
+  return r;
+}
+
+function removeRemote(id) {
+  const r = remotes.get(id);
+  if (!r) return;
+  scene.remove(r.av.g);
+  r.av.paws.forEach(m => scene.remove(m));
+  r.av.label.tex.dispose();
+  remotes.delete(id);
+  rebuildPlayers();
+  if (r.it && net.role !== 'client') {
+    const left = bots.filter(b => b.alive);
+    setIt(left.length ? left[Math.floor(Math.random() * left.length)] : you, null);
+  }
+}
+
+function applyPose(r, m) {
+  if (!okVec(m.h) || !okVec(m.l) || !okVec(m.r) || !Number.isFinite(m.f)) return;
+  r.target.fromArray(m.h);
+  r.handT[0].fromArray(m.l);
+  r.handT[1].fromArray(m.r);
+  r.yaw = Number.isFinite(m.y) ? m.y : 0;
+  r.feet = m.f;
+  const name = cleanName(m.n);
+  if (name && name !== r.name) {
+    r.name = name;
+    r.av.label.redraw();
+  }
+  r.seen = performance.now();
+}
+
+function updateRemotes(dt) {
+  const k = 1 - Math.exp(-14 * dt);
+  const now = performance.now();
+  for (const r of [...remotes.values()]) {
+    if (net.role === 'host' && now - r.seen > 10000) {
+      removeRemote(r.id);
+      continue;
+    }
+    if (r.head.y < -5) {
+      r.head.copy(r.target);
+      r.hands[0].copy(r.handT[0]);
+      r.hands[1].copy(r.handT[1]);
+    }
+    r.head.lerp(r.target, k);
+    r.hands[0].lerp(r.handT[0], k);
+    r.hands[1].lerp(r.handT[1], k);
+    r.av.g.position.copy(r.head);
+    r.av.g.rotation.y = r.yaw;
+    r.av.paws[0].position.copy(r.hands[0]);
+    r.av.paws[1].position.copy(r.hands[1]);
+    r.av.mat.color.set(r.it ? IT_RED : r.css);
+  }
+}
+
+function myPose() {
+  const head = headPos(new V());
+  const fwd = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  const reach = renderer.xr.isPresenting ? hands.map(h => h.mesh.visible ? h.vis : head) : humanHands(you);
+  return {
+    t: 'p', n: you.name, c: you.css, h: ra(head), y: r3(Math.atan2(-fwd.x, -fwd.z)),
+    l: ra(reach[0]), r: ra(reach[1]), f: r3(rig.position.y + drop), g: you.tags, k: you.kills
+  };
+}
+
+function broadcast(m) {
+  for (const c of net.conns.values()) {
+    if (c.open) {
+      try { c.send(m); } catch (e) {}
+    }
+  }
+}
+
+function itKey() {
+  const it = players.find(p => p.it);
+  if (!it) return '';
+  if (it.bot) return 'b' + bots.indexOf(it);
+  return 'h' + (it === you ? net.myId : it.id);
+}
+
+function snapshot() {
+  const me = myPose();
+  const u = [{ i: net.myId, n: you.name, c: you.css, h: me.h, y: me.y, l: me.l, r: me.r, f: me.f, g: you.tags, k: you.kills }];
+  for (const r of remotes.values()) {
+    u.push({ i: r.id, n: r.name, c: r.css, h: ra(r.target), y: r3(r.yaw), l: ra(r.handT[0]), r: ra(r.handT[1]), f: r3(r.feet), g: r.tags, k: r.kills });
+  }
+  return {
+    t: 's', it: itKey(), u,
+    b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags])
+  };
+}
+
+function hostReceive(id, m) {
+  if (!m || typeof m !== 'object') return;
+  let r = remotes.get(id);
+  if (m.t === 'p') {
+    if (!r) r = addRemote(id, cleanName(m.n) || 'Ploop', safeColor(m.c));
+    applyPose(r, m);
+  } else if (m.t === 'f' && r && okVec(m.o) && okVec(m.d)) {
+    const now = performance.now();
+    if (now - r.lastShot < 140) return;
+    r.lastShot = now;
+    const dir = new V().fromArray(m.d);
+    if (dir.lengthSq() < 0.01) return;
+    fireRay(new V().fromArray(m.o), dir.normalize(), r);
+  }
+}
+
+function applyIt(key) {
+  let target = null;
+  if (key && key[0] === 'b') target = bots[+key.slice(1)] || null;
+  else if (key && key[0] === 'h') {
+    const id = key.slice(1);
+    target = id === net.myId ? you : remotes.get(id) || null;
+  }
+  if (players.find(p => p.it) === target) return;
+  const wasMe = you.it;
+  for (const p of players) p.it = p === target;
+  for (const b of bots) {
+    b.mat.color.copy(b.it ? new THREE.Color(IT_RED) : b.base);
+    b.mat.emissive.setHex(b.it ? 0x3a0e00 : 0x000000);
+  }
+  handMat.color.set(you.it ? IT_RED : you.css);
+  if (you.it && !wasMe) {
+    blip(520, 0.3, 'square', 0.16, 0.45);
+    buzz(1, 220);
+  } else if (wasMe && !you.it) {
+    blip(660, 0.14, 'triangle', 0.3, 1.6);
+    buzz(0.6, 80);
+  }
+  board.redraw();
+  wristPaint.redraw();
+}
+
+function clientReceive(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
+    m.b.forEach((s, i) => {
+      const b = bots[i];
+      if (!b || !Array.isArray(s)) return;
+      b.net = b.net || new V();
+      b.net.set(s[0], s[1], s[2]);
+      b.netYaw = s[3];
+      if (s[4] && !b.alive) {
+        b.alive = true;
+        b.pos.copy(b.net);
+        b.g.visible = true;
+      } else if (!s[4] && b.alive) {
+        b.alive = false;
+        b.g.visible = false;
+      }
+      b.kills = s[5] | 0;
+      b.tags = s[6] | 0;
+    });
+    const seen = new Set();
+    for (const u of m.u) {
+      if (!u || typeof u.i !== 'string') continue;
+      if (u.i === net.myId) {
+        you.tags = u.g | 0;
+        you.kills = u.k | 0;
+        continue;
+      }
+      seen.add(u.i);
+      const r = remotes.get(u.i) || addRemote(u.i, cleanName(u.n) || 'Ploop', safeColor(u.c));
+      applyPose(r, u);
+      r.tags = u.g | 0;
+      r.kills = u.k | 0;
+    }
+    for (const id of [...remotes.keys()]) if (!seen.has(id)) removeRemote(id);
+    applyIt(m.it);
+  } else if (m.t === 'boom') {
+    const b = bots[m.i];
+    if (b && b.alive && okVec(m.d)) burst(b, new V().fromArray(m.d));
+  } else if (m.t === 'tr' && m.by !== net.myId && okVec(m.a) && okVec(m.b)) {
+    const a = new V().fromArray(m.a);
+    tracer(a, new V().fromArray(m.b));
+    const ear = rig.localToWorld(camera.position.clone());
+    blip(900 + Math.random() * 300, 0.07, 'square', clamp(0.12 / (1 + ear.distanceTo(a) * 0.15), 0.01, 0.1), 0.35);
+  }
+}
+
+function mirrorBots(dt) {
+  const k = 1 - Math.exp(-12 * dt);
+  for (const b of bots) {
+    if (!b.alive || !b.net) continue;
+    const moved = b.pos.distanceTo(b.net);
+    b.pos.lerp(b.net, k);
+    b.g.position.copy(b.pos);
+    let turn = b.netYaw - b.g.rotation.y;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    b.g.rotation.y += turn * k;
+    b.phase += dt * (2 + moved * 40);
+    const swing = Math.sin(b.phase) * 0.2;
+    b.paws[0].position.set(-0.38, -0.12 + swing * 0.4, swing);
+    b.paws[1].position.set(0.38, -0.12 - swing * 0.4, -swing);
+  }
+}
+
+function clearRemotes() {
+  for (const id of [...remotes.keys()]) removeRemote(id);
+}
+
+function goOffline() {
+  clearTimeout(net.retry);
+  const old = net.peer;
+  net.peer = null;
+  net.host = null;
+  net.role = 'solo';
+  net.conns.clear();
+  if (old) {
+    try { old.destroy(); } catch (e) {}
+  }
+  clearRemotes();
+  netline.textContent = 'offline';
+}
+
+function retry(ms) {
+  const room = net.room;
+  goOffline();
+  net.room = '';
+  netline.textContent = 'reconnecting…';
+  net.retry = setTimeout(() => {
+    if (onlineBox.checked) goOnline(room);
+  }, ms);
+}
+
+function goOnline(room) {
+  if (typeof Peer === 'undefined') {
+    netline.textContent = "online play couldn't load";
+    return;
+  }
+  if (net.peer && net.room === room) return;
+  goOffline();
+  net.room = room;
+  netline.textContent = 'connecting…';
+  const hostId = 'ploops-rioboi-' + room;
+  const p = new Peer(hostId, { debug: 0 });
+  net.peer = p;
+  p.on('open', id => {
+    if (net.peer !== p) return;
+    net.role = 'host';
+    net.myId = id;
+    netline.textContent = `online · room "${room}" · you're hosting`;
+  });
+  p.on('connection', c => {
+    c.on('open', () => net.conns.set(c.peer, c));
+    c.on('data', m => hostReceive(c.peer, m));
+    const gone = () => {
+      net.conns.delete(c.peer);
+      removeRemote(c.peer);
+    };
+    c.on('close', gone);
+    c.on('error', gone);
+  });
+  p.on('disconnected', () => {
+    if (net.peer === p && net.role === 'host') {
+      try { p.reconnect(); } catch (e) {}
+    }
+  });
+  p.on('error', err => {
+    if (net.peer !== p) return;
+    if (err.type === 'unavailable-id') {
+      net.peer = null;
+      try { p.destroy(); } catch (e) {}
+      joinRoom(hostId, room);
+    } else if (net.role !== 'host') {
+      retry(3000);
+    }
+  });
+}
+
+function joinRoom(hostId, room) {
+  const p = new Peer({ debug: 0 });
+  net.peer = p;
+  p.on('open', id => {
+    if (net.peer !== p) return;
+    net.myId = id;
+    const c = p.connect(hostId, { serialization: 'json' });
+    const wait = setTimeout(() => {
+      if (net.peer === p && net.role !== 'client') retry(1500 + Math.random() * 2000);
+    }, 9000);
+    c.on('open', () => {
+      clearTimeout(wait);
+      if (net.peer !== p) return;
+      net.role = 'client';
+      net.host = c;
+      netline.textContent = `online · room "${room}"`;
+    });
+    c.on('data', clientReceive);
+    c.on('close', () => {
+      if (net.host === c) retry(300 + Math.random() * 1500);
+    });
+  });
+  p.on('error', () => {
+    if (net.peer === p) retry(1500 + Math.random() * 2000);
+  });
+}
+
+function netTick(dt) {
+  net.timer -= dt;
+  if (net.timer > 0) return;
+  if (net.role === 'host' && net.conns.size) {
+    net.timer = 1 / 15;
+    broadcast(snapshot());
+  } else if (net.role === 'client' && net.host && net.host.open) {
+    net.timer = 1 / 20;
+    try { net.host.send(myPose()); } catch (e) {}
+  } else {
+    net.timer = 0.2;
+  }
+}
+
 setIt(bots[Math.floor(rand() * bots.length)], null);
 
 let last = performance.now();
@@ -1293,8 +1753,13 @@ renderer.setAnimationLoop(() => {
   }
   if (renderer.xr.isPresenting) vrShoot();
   else gun.visible = false;
-  updateBots(dt, playing);
-  checkTags(now, playing);
+  if (net.role === 'client') mirrorBots(dt);
+  else {
+    updateBots(dt, playing);
+    checkTags(now, playing);
+  }
+  updateRemotes(dt);
+  netTick(dt);
   updateChunks(dt);
   updateDrops(dt);
   updateTracers(dt);
@@ -1309,7 +1774,7 @@ renderer.setAnimationLoop(() => {
   }
   if (mode === 'flat') {
     const it = players.find(p => p.it);
-    const text = you.it ? "You're it — go tag a Ploop!" : `Run! ${it.name} is it`;
+    const text = you.it ? "You're it — go tag someone!" : `Run! ${it ? it.name : 'nobody'} is it`;
     if (text !== hudText) {
       hudText = text;
       hud.textContent = text;
