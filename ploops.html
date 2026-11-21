@@ -209,48 +209,9 @@ for (let i = 0; i < 9; i++) {
 
 const RING = new V(0, 0, 150);
 const RING_TOP = 1.2;
-const RING_HALF = 3.85;
+const RING_HALF = 6;
 let gameMode = 'ploops';
-box(RING.x, -0.5, RING.z, 34, 1, 34, 0x30343f, 160);
-for (const [x, z, w, d] of [[0, -17, 34, 0.6], [0, 17, 34, 0.6], [-17, 0, 0.6, 34], [17, 0, 0.6, 34]]) {
-  box(RING.x + x, 3, RING.z + z, w, 6, d, 0x22252d, 150);
-}
-box(RING.x, RING_TOP / 2, RING.z, 8, RING_TOP, 8, 0x1b2440, 210);
-box(RING.x, RING_TOP - 0.2, RING.z, 8.04, 0.14, 8.04, 0xd63a1e);
-for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-  box(RING.x + sx * RING_HALF, RING_TOP + 0.75, RING.z + sz * RING_HALF, 0.22, 1.5, 0.22, sx * sz > 0 ? 0xd63a1e : 0x2f6fe0, 300);
-  box(RING.x + sx * RING_HALF, RING_TOP + 1.52, RING.z + sz * RING_HALF, 0.28, 0.06, 0.28, 0xe8e8e8);
-  box(RING.x + sx * (RING_HALF + 1.2), 0.3, RING.z + sz * (RING_HALF + 1.2), 0.45, 0.6, 0.45, 0x3a2a1a);
-}
-[[0.45, 0xd63a1e], [0.85, 0xf2f2f2], [1.25, 0x2f6fe0]].forEach(([h, c]) => {
-  box(RING.x, RING_TOP + h, RING.z - RING_HALF, RING_HALF * 2, 0.05, 0.05, c);
-  box(RING.x, RING_TOP + h, RING.z + RING_HALF, RING_HALF * 2, 0.05, 0.05, c);
-  box(RING.x - RING_HALF, RING_TOP + h, RING.z, 0.05, 0.05, RING_HALF * 2, c);
-  box(RING.x + RING_HALF, RING_TOP + h, RING.z, 0.05, 0.05, RING_HALF * 2, c);
-});
-for (let i = 0; i < 3; i++) box(RING.x, 0.2 + i * 0.4, RING.z + RING_HALF + 1.6 - i * 0.45, 1.4, 0.4 + i * 0.4, 0.45, 0x4a4f5c, 220);
-for (const [x, z, w, d] of [[0, -10, 26, 3], [0, 10, 26, 3], [-10, 0, 3, 20], [10, 0, 3, 20]]) {
-  box(RING.x + x, 0.25, RING.z + z, w, 0.5, d, 0x262a34, 200);
-}
-
-const matPaint = document.createElement('canvas');
-matPaint.width = matPaint.height = 512;
-const mp = matPaint.getContext('2d');
-mp.fillStyle = '#2a59b8';
-mp.fillRect(0, 0, 512, 512);
-mp.strokeStyle = '#f2f2f2';
-mp.lineWidth = 14;
-mp.strokeRect(14, 14, 484, 484);
-mp.fillStyle = 'rgba(255,255,255,.9)';
-mp.textAlign = 'center';
-mp.font = '700 92px Fredoka, sans-serif';
-mp.fillText('PLOOPS', 256, 250);
-mp.font = '700 54px Fredoka, sans-serif';
-mp.fillText('BRAWL', 256, 320);
-const ringMat = new THREE.Mesh(new THREE.PlaneGeometry(7.7, 7.7), new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(matPaint) }));
-ringMat.rotation.x = -Math.PI / 2;
-ringMat.position.set(RING.x, RING_TOP + 0.004, RING.z);
-scene.add(ringMat);
+box(RING.x, RING_TOP - 0.5, RING.z, RING_HALF * 2, 1, RING_HALF * 2, 0x9a9da3, 210);
 
 const grassPaint = document.createElement('canvas');
 grassPaint.width = grassPaint.height = 256;
@@ -385,42 +346,7 @@ for (let i = 0; i < FLOWERS * 2 && blooms < FLOWERS; i++) {
 flowers.count = blooms;
 scene.add(flowers);
 
-const CROWD = 70;
-const crowdMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.35, 2), new THREE.MeshLambertMaterial({ color: 0xffffff }), CROWD);
-const crowdEyes = new THREE.InstancedMesh(new THREE.SphereGeometry(0.055, 8, 6), new THREE.MeshBasicMaterial({ color: 0x15151c }), CROWD * 2);
-const crowd = [];
-const crowdColors = [0xffb347, 0x9b7bff, 0x5ad1ff, 0xff7bc5, 0xc6e85a, 0xffe066, 0x9ae66e, 0xf8a5c2, 0xc7a17a, 0x7ed6df];
-for (let i = 0; i < CROWD; i++) {
-  const a = rand() * Math.PI * 2, d = 7.5 + rand() * 7;
-  const x = RING.x + Math.cos(a) * d, z = RING.z + Math.sin(a) * d;
-  const y = floorAt(x, z, 1) + 0.35;
-  crowd.push({ x, y, z, yaw: Math.atan2(RING.x - x, RING.z - z), phase: rand() * 6, beat: 3 + rand() * 3 });
-  crowdMesh.setColorAt(i, new THREE.Color(crowdColors[i % crowdColors.length]));
-}
-crowdMesh.frustumCulled = false;
-crowdEyes.frustumCulled = false;
-scene.add(crowdMesh, crowdEyes);
-const eyeOffset = new V();
-function updateCrowd(t) {
-  if (gameMode !== 'brawl') return;
-  crowd.forEach((c, i) => {
-    const hop = Math.abs(Math.sin(t * c.beat + c.phase)) * 0.3;
-    dummy.position.set(c.x, c.y + hop, c.z);
-    dummy.rotation.set(0, c.yaw, 0);
-    dummy.scale.set(1.05, 0.95 + hop * 0.3, 1.05);
-    dummy.updateMatrix();
-    crowdMesh.setMatrixAt(i, dummy.matrix);
-    for (const side of [-1, 1]) {
-      eyeOffset.set(0.12 * side, 0.1, 0.31).applyAxisAngle(UP, c.yaw);
-      dummy.position.set(c.x + eyeOffset.x, c.y + hop + eyeOffset.y, c.z + eyeOffset.z);
-      dummy.scale.setScalar(1);
-      dummy.updateMatrix();
-      crowdEyes.setMatrixAt(i * 2 + (side > 0 ? 1 : 0), dummy.matrix);
-    }
-  });
-  crowdMesh.instanceMatrix.needsUpdate = true;
-  crowdEyes.instanceMatrix.needsUpdate = true;
-}
+function updateCrowd(t) {}
 
 function pushOut(p, r) {
   let hit = null;
@@ -819,12 +745,6 @@ boardMesh.position.set(-3.4, 2.1, 6.4);
 boardMesh.rotation.y = Math.atan2(3.4, 2.6);
 scene.add(boardMesh);
 box(-3.4, 0.6, 6.4, 0.14, 1.2, 0.14, 0x7b5233);
-for (const side of [-1, 1]) {
-  const jumbo = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 4), new THREE.MeshBasicMaterial({ map: board.tex, transparent: true }));
-  jumbo.position.set(RING.x, 5.6, RING.z + side * 9);
-  jumbo.rotation.y = side > 0 ? Math.PI : 0;
-  scene.add(jumbo);
-}
 
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => paintQueue.forEach(f => f()));
 
@@ -2526,7 +2446,6 @@ let lastHit = null;
 let koUntil = 0;
 let deskJab = 0;
 const punchCd = new Map();
-const ropeHead = new V();
 let bannerText = '';
 const bannerPaint = textCanvas(512, 128, (x, w, h) => {
   x.clearRect(0, 0, w, h);
@@ -2630,20 +2549,7 @@ function brawl(dt, now, playing) {
     }
     return;
   }
-  headPos(ropeHead);
-  if (rig.position.y + drop > RING_TOP - 0.05 && knock.length() < 3.5) {
-    const lim = RING_HALF - 0.3;
-    const dx = ropeHead.x - RING.x, dz = ropeHead.z - RING.z;
-    if (Math.abs(dx) > lim) {
-      rig.position.x -= dx - Math.sign(dx) * lim;
-      knock.x *= -0.4;
-    }
-    if (Math.abs(dz) > lim) {
-      rig.position.z -= dz - Math.sign(dz) * lim;
-      knock.z *= -0.4;
-    }
-  }
-  if (rig.position.y + drop < RING_TOP - 0.6) {
+  if (rig.position.y + drop < RING_TOP - 3) {
     koUntil = now + 2500;
     showBanner('K.O.!', 2200);
     noiseBurst(0.6, 'lowpass', 400, 1.3);
