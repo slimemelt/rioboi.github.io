@@ -603,10 +603,31 @@ function roundRect(x, X, Y, w, h, r) {
 }
 
 const bodyGeo = new THREE.IcosahedronGeometry(0.35, 3);
-const mouthGeo = new THREE.SphereGeometry(0.06, 12, 8);
-const cheekGeo = new THREE.SphereGeometry(0.045, 10, 6);
-const mouthMat = new THREE.MeshBasicMaterial({ color: 0x3a0d14 });
-const cheekMat = new THREE.MeshBasicMaterial({ color: 0xff8fa8, transparent: true, opacity: 0.7 });
+function paintedGeometry(parts) {
+  const pos = [], nor = [], col = [];
+  for (const [geo, color, place] of parts) {
+    const g = (geo.index ? geo.toNonIndexed() : geo.clone());
+    place(g);
+    const c = new THREE.Color(color);
+    pos.push(...g.attributes.position.array);
+    nor.push(...g.attributes.normal.array);
+    for (let k = 0; k < g.attributes.position.count; k++) col.push(c.r, c.g, c.b);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return out;
+}
+const faceParts = [];
+for (const s of [-1, 1]) {
+  faceParts.push([new THREE.SphereGeometry(0.075, 12, 8), 0xffffff, g => g.translate(0.12 * s, 0.08, 0.29)]);
+  faceParts.push([new THREE.SphereGeometry(0.04, 10, 6), 0x1a1a22, g => g.translate(0.12 * s, 0.08, 0.345)]);
+  faceParts.push([new THREE.SphereGeometry(0.045, 10, 6), 0xff9db3, g => { g.scale(1, 0.6, 0.4); g.translate(0.21 * s, -0.04, 0.27); }]);
+}
+faceParts.push([new THREE.SphereGeometry(0.06, 12, 8), 0x3a0d14, g => { g.scale(1, 0.55, 0.35); g.translate(0, -0.08, 0.315); }]);
+const ploopFace = paintedGeometry(faceParts);
+const ploopFaceMat = new THREE.MeshBasicMaterial({ vertexColors: true });
 const eyeGeo = new THREE.SphereGeometry(0.075, 12, 8);
 const pupilGeo = new THREE.SphereGeometry(0.04, 10, 6);
 const pawGeo = new THREE.SphereGeometry(0.09, 12, 8);
@@ -624,22 +645,7 @@ const bots = crew.map(([name, color, css], i) => {
   const mat = new THREE.MeshLambertMaterial({ color });
   const body = new THREE.Mesh(bodyGeo, mat);
   g.add(body);
-  for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(eyeGeo, eyeWhite);
-    eye.position.set(0.12 * s, 0.08, 0.29);
-    const pupil = new THREE.Mesh(pupilGeo, eyeDark);
-    pupil.position.set(0, 0, 0.05);
-    eye.add(pupil);
-    body.add(eye);
-    const cheek = new THREE.Mesh(cheekGeo, cheekMat);
-    cheek.position.set(0.21 * s, -0.04, 0.26);
-    cheek.scale.set(1, 0.6, 0.4);
-    body.add(cheek);
-  }
-  const mouth = new THREE.Mesh(mouthGeo, mouthMat);
-  mouth.position.set(0, -0.08, 0.31);
-  mouth.scale.set(1, 0.55, 0.35);
-  body.add(mouth);
+  body.add(new THREE.Mesh(ploopFace, ploopFaceMat));
   const paws = [new THREE.Mesh(pawGeo, mat), new THREE.Mesh(pawGeo, mat)];
   g.add(...paws);
   const tag = textCanvas(256, 72, (x, w, h) => {
