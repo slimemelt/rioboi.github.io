@@ -779,6 +779,7 @@ async function findPlayerId() {
   idLine.textContent = 'your player ID: ' + playerId;
   if (typeof watchPaint !== 'undefined') watchPaint.redraw();
 }
+const knock = new V();
 let ragUntil = 0;
 let grabbed = null;
 function isRagged() {
