@@ -59,8 +59,10 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
     <li><b>Chainsaw</b> — press B in VR to cycle blaster, chainsaw and knives. Rev the chainsaw with the trigger; for knives, squeeze the trigger and let go mid-swing to throw. Desktop: 1 blaster, 2 chainsaw, 3 knives.</li>
-    <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: tick brawl mode in this menu or press M, then click to punch.</li>
+    <li><b>Arms</b> — hold a Ploop in one hand, grip one of its paws with the other and pull to rip the arm off. Desktop: hold a Ploop and press T.</li>
+    <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: tick brawl mode in this menu or press M, then click to punch. Grip someone with your hand (E on desktop) to pick them up, then let go to throw them off the edge. Hits make people ragdoll.</li>
   </ul>
+  <p id="idline">your player ID: …</p>
   <p id="netline">offline</p>
   <p id="note"></p>
 </div>
@@ -594,7 +596,7 @@ const bots = crew.map(([name, color, css], i) => {
   const a = (i / crew.length) * Math.PI * 2;
   return {
     name, css, bot: true, it: false, tags: 0, g, body, mat, paws, base: new THREE.Color(color),
-    alive: true, respawnAt: 0, goreMat: new THREE.MeshLambertMaterial({ color }),
+    arms: [true, true], alive: true, respawnAt: 0, goreMat: new THREE.MeshLambertMaterial({ color }),
     pos: new V(Math.cos(a) * 9, 0.36, Math.sin(a) * 9 - 2), dir: new V(1, 0, 0),
     heading: rand() * Math.PI * 2, turnIn: rand() * 2, phase: rand() * 6
   };
@@ -752,7 +754,40 @@ const SPAWN = new V(0, 0, 9.5);
 const spawnJitter = new V((Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 2);
 rig.position.copy(SPAWN).add(spawnJitter);
 const vel = new V();
-const knock = new V();
+let playerId = 'PL-T' + (stored('ploops-tid') || (() => {
+  const t = Math.floor(Math.random() * 0xfffffff).toString(16).toUpperCase().padStart(7, '0');
+  store('ploops-tid', t);
+  return t;
+})());
+const ID_SALT = 'ploops-rioboi-v1';
+async function findPlayerId() {
+  let ip = '';
+  for (const url of ['https://api.ipify.org?format=json', 'https://api64.ipify.org?format=json']) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      const j = await res.json();
+      if (j && typeof j.ip === 'string') {
+        ip = j.ip;
+        break;
+      }
+    } catch (e) {}
+  }
+  if (!ip || !crypto.subtle) return;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ID_SALT + ip));
+  const hex = [...new Uint8Array(buf)].map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase();
+  playerId = 'PL-' + hex.slice(0, 8);
+  idLine.textContent = 'your player ID: ' + playerId;
+  if (typeof watchPaint !== 'undefined') watchPaint.redraw();
+}
+let ragUntil = 0;
+let grabbed = null;
+function isRagged() {
+  const t = performance.now();
+  return t < ragUntil || !!(grabbed && t < grabbed.until);
+}
+function knockDecay() {
+  return gameMode === 'brawl' ? (grounded ? 1.4 : 0.25) : 2.5;
+}
 let noTouchUntil = 0;
 const history = [];
 let wasTouching = false;
@@ -786,6 +821,16 @@ function respawn() {
 }
 
 function body(prevY, dt, holding) {
+  if (grabbed) {
+    if (performance.now() > grabbed.until || gameMode !== 'brawl') grabbed = null;
+    else {
+      headPos(headV);
+      tB.subVectors(grabbed.p, headV);
+      rig.position.addScaledVector(tB, 0.65);
+      vel.set(0, 0, 0);
+      knock.set(0, 0, 0);
+    }
+  }
   headPos(headV);
   tA.copy(headV);
   if (pushOut(tA, 0.2)) {
@@ -848,9 +893,10 @@ function vrMove(dt, now) {
     const pull = left.src.gamepad.buttons[0];
     sprint = !!(pull && pull.value > 0.5) && !left.hold && !left.half;
   }
-  if (Math.hypot(mx, my) < 0.15) {
+  if (Math.hypot(mx, my) < 0.15 || isRagged()) {
     mx = 0;
     my = 0;
+    sprint = false;
   }
   camera.getWorldDirection(tA);
   tA.y = 0;
@@ -862,9 +908,9 @@ function vrMove(dt, now) {
   moveSum.multiplyScalar(sprint ? 5.2 : 3.2);
   vel.x = moveSum.x + knock.x;
   vel.z = moveSum.z + knock.z;
-  knock.multiplyScalar(Math.exp(-2.5 * dt));
+  knock.multiplyScalar(Math.exp(-knockDecay() * dt));
   const a = !!(right && right.src.gamepad.buttons[4] && right.src.gamepad.buttons[4].pressed);
-  if (a && !jumpWas && grounded && !watchOpen) vel.y = 5.2;
+  if (a && !jumpWas && grounded && !watchOpen && !isRagged()) vel.y = 5.2;
   jumpWas = a;
   vel.y -= 9.8 * dt;
   rig.position.addScaledVector(vel, dt);
@@ -900,12 +946,13 @@ function flatMove(dt) {
   const active = mode === 'flat' && menu.classList.contains('hide');
   const fw = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  tA.set(active ? st : 0, 0, active ? -fw : 0);
+  const live = active && !isRagged();
+  tA.set(live ? st : 0, 0, live ? -fw : 0);
   if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2).applyAxisAngle(UP, yaw);
   vel.x = tA.x + knock.x;
   vel.z = tA.z + knock.z;
-  knock.multiplyScalar(Math.exp(-2.5 * dt));
-  if (active && keys.Space && grounded) {
+  knock.multiplyScalar(Math.exp(-knockDecay() * dt));
+  if (live && keys.Space && grounded) {
     vel.y = 6.2;
     blip(240, 0.1, 'triangle', 0.12, 1.5);
   }
@@ -930,6 +977,7 @@ function updateBots(dt, playing) {
       if (performance.now() < b.respawnAt) continue;
       const a = Math.random() * Math.PI * 2;
       b.alive = true;
+      restoreArms(b);
       const far = 8 + Math.random() * (R - 12);
       b.pos.set(Math.cos(a) * far, 0.36, Math.sin(a) * far);
       b.g.visible = true;
@@ -2027,7 +2075,12 @@ function placeHalf(m, at, fallback) {
 }
 
 function deskKey(code) {
-  if (code === 'KeyE') {
+  if (code === 'KeyE' && gameMode === 'brawl') {
+    deskGrabKey();
+  } else if (code === 'KeyT' && deskHold) {
+    const side = deskHold.arms[0] ? 0 : deskHold.arms[1] ? 1 : -1;
+    if (side >= 0) ripArm(deskHold, side, null, false, true);
+  } else if (code === 'KeyE') {
     if (deskHold) {
       const b = deskHold;
       deskHold = null;
@@ -2058,6 +2111,79 @@ function deskKey(code) {
   }
 }
 
+const pawTmp = new V();
+function pawWorld(b, side) {
+  return b.paws[side].getWorldPosition(pawTmp);
+}
+
+function nearPaw(b, at, reach) {
+  let best = -1, bd = reach;
+  for (let k = 0; k < 2; k++) {
+    if (!b.arms[k]) continue;
+    const d = pawWorld(b, k).distanceTo(at);
+    if (d < bd) {
+      best = k;
+      bd = d;
+    }
+  }
+  return best;
+}
+
+function restoreArms(b) {
+  b.arms = [true, true];
+  b.paws[0].visible = true;
+  b.paws[1].visible = true;
+}
+
+const armBoneGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.16, 6);
+function makeArm(b) {
+  const g = new THREE.Group();
+  const paw = new THREE.Mesh(pawGeo, new THREE.MeshLambertMaterial({ color: b.base }));
+  paw.position.y = -0.1;
+  const stump = new THREE.Mesh(pawGeo, meatMat);
+  stump.scale.set(0.8, 0.4, 0.8);
+  stump.position.y = 0.04;
+  const bone = new THREE.Mesh(armBoneGeo, new THREE.MeshLambertMaterial({ color: 0xeee6d0 }));
+  bone.position.y = 0.1;
+  g.add(paw, stump, bone);
+  g.scale.setScalar(b.size);
+  scene.add(g);
+  return g;
+}
+
+function ripArm(b, side, h, fromNet, desk) {
+  if (!b.arms[side]) return;
+  b.arms[side] = false;
+  const at = pawWorld(b, side).clone();
+  b.paws[side].visible = false;
+  const arm = makeArm(b);
+  arm.position.copy(at);
+  crunch();
+  ripSound();
+  voice('panic', b.pos, b);
+  spray(at, new V(0, 1, 0), 18, 1.4);
+  const stump = at.clone();
+  stump.y += 0.05;
+  fountain(stump, 3.5);
+  if (!fromNet) {
+    handBlood = 1;
+    if (net.role === 'client') {
+      if (net.host && net.host.open) {
+        try { net.host.send({ t: 'arm', i: bots.indexOf(b), s: side }); } catch (e) {}
+      }
+    } else broadcast({ t: 'arm', i: bots.indexOf(b), s: side });
+  }
+  if (h) {
+    h.half = arm;
+    buzz(1, 160);
+  } else {
+    const fwd = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+    const c = fling(arm, at, new V(), b.size, 0.15, desk ? fwd.multiplyScalar(3).add(new V(0, 2, 0)) : null);
+    c.bleeds = true;
+    c.life = 14;
+  }
+}
+
 function interact(dt, now) {
   const vr = renderer.xr.isPresenting;
   const flatPlay = !vr && mode === 'flat';
@@ -2070,21 +2196,62 @@ function interact(dt, now) {
       const trig = gp && gp.buttons[0] ? gp.buttons[0].value : 0;
       h.velW.subVectors(h.vis, h.lastVis).divideScalar(Math.max(dt, 0.001));
       h.lastVis.copy(h.vis);
-      curlHand(h.model, h.hold || h.half ? 0.6 : Math.max(grip, trig * 0.35));
+      curlHand(h.model, h.hold || h.half || h.pg || h.arm ? 0.6 : Math.max(grip, trig * 0.35));
       const down = grip > 0.6;
-      if (down && !h.gripWas && !h.hold && !h.half) {
-        const b = grabbable(h.vis, 0.6);
-        if (b) grab(h, b);
+      if (down && !h.gripWas && !h.hold && !h.half && !h.pg && !h.arm) {
+        if (gameMode === 'brawl') {
+          const r = nearHuman(h.vis, 0.65);
+          if (r) {
+            h.pg = r;
+            pulse(h, 0.7, 60);
+          }
+        } else {
+          const o = hands.find(o => o !== h && o.hold);
+          const side = o ? nearPaw(o.hold, h.vis, 0.32) : -1;
+          if (side >= 0) h.arm = { b: o.hold, side, d0: pawWorld(o.hold, side).distanceTo(h.vis) };
+          else {
+            const b = grabbable(h.vis, 0.6);
+            if (b) grab(h, b);
+          }
+        }
       } else if (!down && h.gripWas) {
         if (h.hold) letGo(h);
         if (h.half) dropHalf(h);
+        if (h.pg) {
+          if (remotes.has(h.pg.id)) punch(h.pg, h.velW.clone().multiplyScalar(1.7).add(new V(0, 3, 0)), h);
+          h.pg = null;
+        }
+        h.arm = null;
       }
       h.gripWas = down;
+      if (h.pg) {
+        if (!remotes.has(h.pg.id) || gameMode !== 'brawl') h.pg = null;
+        else if (now - pgSent > 50) {
+          pgSent = now;
+          sendGrab(h.pg, h.vis);
+        }
+      }
+      if (h.arm) {
+        const a = h.arm;
+        if (!a.b.alive || !a.b.arms[a.side]) h.arm = null;
+        const gap = h.arm ? pawWorld(a.b, a.side).distanceTo(h.vis) - a.d0 : 0;
+        if (h.arm && gap > 0.26) {
+          ripArm(a.b, a.side, h, false, false);
+          h.arm = null;
+        } else if (h.arm) pulse(h, gap * 1.5, 20);
+      }
       if (h.hold && trig > 0.8 && h.hold.squishT < 0) h.hold.squishT = 0;
       if (h.half) placeHalf(h.half, h.vis, h.mesh.quaternion);
     }
   } else if (flatPlay) {
-    const busy = deskHold || deskRip ? 0.6 : 0;
+    if (deskPG) {
+      if (!remotes.has(deskPG.id) || gameMode !== 'brawl') deskPG = null;
+      else if (now - pgSent > 50) {
+        pgSent = now;
+        sendGrab(deskPG, camera.localToWorld(new V(0, -0.15, -0.8)));
+      }
+    }
+    const busy = deskHold || deskRip || deskPG ? 0.6 : 0;
     deskHands.forEach(d => curlHand(d, busy));
   }
 
@@ -2240,9 +2407,12 @@ function setWeapon(w) {
 }
 
 function applyKnock(v, by) {
-  if (v.length() > 12) v.setLength(12);
+  const cap = gameMode === 'brawl' ? 16 : 12;
+  if (v.length() > cap) v.setLength(cap);
   knock.set(v.x, 0, v.z);
   vel.y = Math.max(vel.y, v.y);
+  grabbed = null;
+  if (gameMode === 'brawl') ragUntil = performance.now() + clamp(700 + v.length() * 120, 900, 2400);
   if (by) lastHit = { id: by, t: performance.now() };
   buzz(1, 200);
   noiseBurst(0.25, 'lowpass', 260, 1.2);
@@ -2509,7 +2679,7 @@ function creditKo(by) {
 }
 
 function punch(r, v, h) {
-  if (v.length() > 11) v.setLength(11);
+  if (v.length() > 15) v.setLength(15);
   noiseBurst(0.12, 'bandpass', 900, 1.1);
   blip(140, 0.12, 'sine', 0.35, 0.5);
   if (h) pulse(h, 0.9, 60);
@@ -2520,7 +2690,55 @@ function punch(r, v, h) {
   } else knockHuman(r, v);
 }
 
+function nearHuman(at, reach) {
+  let best = null, bd = reach;
+  for (const r of remotes.values()) {
+    const d = Math.min(at.distanceTo(r.head), at.distanceTo(tagBody.copy(r.head).setY(r.head.y - 0.42)));
+    if (d < bd) {
+      best = r;
+      bd = d;
+    }
+  }
+  return best;
+}
+
+function sendGrab(r, p) {
+  const m = { t: 'grab', p: ra(p) };
+  if (net.role === 'client') {
+    if (net.host && net.host.open) {
+      try { net.host.send({ ...m, to: r.id }); } catch (e) {}
+    }
+  } else {
+    const c = net.conns.get(r.id);
+    if (c && c.open) {
+      try { c.send({ ...m, by: net.myId }); } catch (e) {}
+    }
+  }
+}
+
+function applyGrab(p, by) {
+  if (gameMode !== 'brawl') return;
+  grabbed = { p: new V().fromArray(p), until: performance.now() + 350, by };
+  ragUntil = Math.max(ragUntil, performance.now() + 500);
+  lastHit = { id: by, t: performance.now() };
+}
+
+let deskPG = null;
+let pgSent = 0;
+function deskGrabKey() {
+  if (deskPG) {
+    const r = deskPG;
+    deskPG = null;
+    const fwd = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+    punch(r, fwd.setY(0).normalize().multiplyScalar(13).add(new V(0, 4, 0)), null);
+    return;
+  }
+  const r = nearHuman(camera.localToWorld(new V(0, -0.1, -0.9)), 1.4);
+  if (r) deskPG = r;
+}
+
 function deskPunch() {
+  if (deskPG || isRagged()) return;
   deskJab = performance.now() + 160;
   const head = headPos(new V());
   const fwd = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
@@ -2562,8 +2780,10 @@ function brawl(dt, now, playing) {
     } else creditKo(by);
     return;
   }
+  if (isRagged()) return;
   for (const h of hands) {
     if (!h.mesh.visible) continue;
+    if (h.pg) continue;
     const speed = h.velW.length();
     if (speed < 2.2) continue;
     for (const r of remotes.values()) {
@@ -2572,7 +2792,7 @@ function brawl(dt, now, playing) {
       tagBody.y -= 0.42;
       if (h.vis.distanceTo(r.head) < 0.3 || h.vis.distanceTo(tagBody) < 0.36) {
         punchCd.set(r.id, now);
-        punch(r, h.velW.clone().multiplyScalar(1.3).add(new V(0, 2 + speed * 0.3, 0)), h);
+        punch(r, h.velW.clone().multiplyScalar(1.6).add(new V(0, 2.5 + speed * 0.3, 0)), h);
       }
     }
   }
@@ -2967,6 +3187,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
     }
     text(you.name, 195, 218, 42, '#fff', 'left', 700);
     text(`${you.kills} splats · ${you.kos || 0} KOs`, 195, 266, 26, 'rgba(255,255,255,.7)');
+    text('player ID  ' + playerId, 40, 490, 30, '#ffde59', 'left', 700);
     btn(560, 190, 200, 64, 'rename', 'edit');
     text('color', 40, 330, 26, 'rgba(255,255,255,.7)');
     PALETTE.forEach((c, i) => {
@@ -3200,6 +3421,7 @@ function addRemote(id, name, css) {
     feet: 0, seen: performance.now()
   };
   const g = new THREE.Group();
+  g.rotation.order = 'YXZ';
   const mat = new THREE.MeshLambertMaterial({ color: css });
   g.add(new THREE.Mesh(avatarGeo, mat));
   const torso = new THREE.Mesh(avatarBodyGeo, mat);
@@ -3265,6 +3487,8 @@ function applyPose(r, m) {
   r.handT[1].fromArray(m.r);
   r.yaw = Number.isFinite(m.y) ? m.y : 0;
   r.feet = m.f;
+  r.rag = m.rg ? 1 : 0;
+  if (typeof m.pid === 'string' && /^PL-[0-9A-F]{8}$|^PL-T[0-9A-F]{7}$/.test(m.pid)) r.pid = m.pid;
   const name = cleanName(m.n);
   if (name && name !== r.name) {
     r.name = name;
@@ -3295,6 +3519,22 @@ function updateRemotes(dt) {
     r.av.g.children[1].position.y = -Math.min(0.42, Math.max(0.15, r.head.y - r.feet - 0.3));
     r.av.paws[0].position.copy(r.hands[0]);
     r.av.paws[1].position.copy(r.hands[1]);
+    if (r.rag) {
+      r.ragT = (r.ragT || 0) + dt * 7;
+      r.av.g.rotation.x = Math.sin(r.ragT * 0.8) * 1.3;
+      r.av.g.rotation.z = Math.cos(r.ragT * 0.6) * 1.1;
+      for (const side of [0, 1]) {
+        const sg = side ? 1 : -1;
+        r.av.paws[side].position.set(
+          r.head.x + sg * 0.45 * Math.cos(r.ragT + side * 2),
+          r.head.y - 0.45 + 0.25 * Math.sin(r.ragT * 1.3 + side),
+          r.head.z + 0.3 * Math.sin(r.ragT + side)
+        );
+      }
+    } else {
+      r.av.g.rotation.x = 0;
+      r.av.g.rotation.z = 0;
+    }
     r.av.mat.color.set(r.it ? IT_RED : r.css);
     const v = calls.get(r.id);
     if (v && v.panner) placeSound(v.panner, r.head);
@@ -3307,7 +3547,7 @@ function myPose() {
   const reach = renderer.xr.isPresenting ? hands.map(h => h.mesh.visible ? h.vis : head) : humanHands(you);
   return {
     t: 'p', n: you.name, c: you.css, h: ra(head), y: r3(Math.atan2(-fwd.x, -fwd.z)),
-    l: ra(reach[0]), r: ra(reach[1]), f: r3(rig.position.y + drop), g: you.tags, k: you.kills,
+    l: ra(reach[0]), r: ra(reach[1]), f: r3(rig.position.y + drop), g: you.tags, k: you.kills, rg: isRagged() ? 1 : 0, pid: playerId,
     hd: bots.map((b, i) => isHeld(b) ? [i, r3(b.pos.x), r3(b.pos.y), r3(b.pos.z)] : null).filter(Boolean)
   };
 }
@@ -3329,13 +3569,13 @@ function itKey() {
 
 function snapshot() {
   const me = myPose();
-  const u = [{ i: net.myId, n: you.name, c: you.css, h: me.h, y: me.y, l: me.l, r: me.r, f: me.f, g: you.tags, k: you.kills, o: you.kos || 0 }];
+  const u = [{ i: net.myId, n: you.name, c: you.css, h: me.h, y: me.y, l: me.l, r: me.r, f: me.f, g: you.tags, k: you.kills, o: you.kos || 0, rg: me.rg, pid: playerId }];
   for (const r of remotes.values()) {
-    u.push({ i: r.id, n: r.name, c: r.css, h: ra(r.target), y: r3(r.yaw), l: ra(r.handT[0]), r: ra(r.handT[1]), f: r3(r.feet), g: r.tags, k: r.kills, o: r.kos || 0 });
+    u.push({ i: r.id, n: r.name, c: r.css, h: ra(r.target), y: r3(r.yaw), l: ra(r.handT[0]), r: ra(r.handT[1]), f: r3(r.feet), g: r.tags, k: r.kills, o: r.kos || 0, rg: r.rag ? 1 : 0, pid: r.pid });
   }
   return {
     t: 's', it: itKey(), u, md: gameMode,
-    b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags])
+    b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags, (b.arms[0] ? 1 : 0) | (b.arms[1] ? 2 : 0)])
   };
 }
 
@@ -3362,11 +3602,27 @@ function hostReceive(id, m) {
     if (b.fly.length() > 16) b.fly.setLength(16);
     b.thrower = r;
     b.thrownAt = performance.now();
+  } else if (m.t === 'arm' && r && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
+    ripArm(bots[m.i], m.s, null, true, false);
+    const msg = { t: 'arm', i: m.i, s: m.s };
+    for (const [cid, c] of net.conns) {
+      if (cid !== id && c.open) {
+        try { c.send(msg); } catch (e) {}
+      }
+    }
+  } else if (m.t === 'grab' && r && typeof m.to === 'string' && okVec(m.p)) {
+    if (m.to === net.myId) applyGrab(m.p, id);
+    else {
+      const c = net.conns.get(m.to);
+      if (c && c.open) {
+        try { c.send({ t: 'grab', p: m.p, by: id }); } catch (e) {}
+      }
+    }
   } else if (m.t === 'mode' && r) {
     setMode(m.md);
   } else if (m.t === 'punch' && r && typeof m.to === 'string' && okVec(m.v)) {
     const v = new V().fromArray(m.v);
-    if (v.length() > 11) v.setLength(11);
+    if (v.length() > 15) v.setLength(15);
     if (m.to === net.myId) applyKnock(v, id);
     else if (remotes.has(m.to)) knockHuman(remotes.get(m.to), v, id);
   } else if (m.t === 'ko' && r) {
@@ -3428,6 +3684,7 @@ function clientReceive(m) {
       b.netYaw = s[3];
       if (s[4] && !b.alive) {
         b.alive = true;
+        restoreArms(b);
         b.pos.copy(b.net);
         b.g.visible = true;
       } else if (!s[4] && b.alive) {
@@ -3436,6 +3693,10 @@ function clientReceive(m) {
       }
       b.kills = s[5] | 0;
       b.tags = s[6] | 0;
+      for (let k = 0; k < 2; k++) if (b.arms[k] && !((s[7] >> k) & 1)) {
+        b.arms[k] = false;
+        b.paws[k].visible = false;
+      }
     });
     const seen = new Set();
     for (const u of m.u) {
@@ -3455,6 +3716,10 @@ function clientReceive(m) {
     }
     for (const id of [...remotes.keys()]) if (!seen.has(id)) removeRemote(id);
     applyIt(m.it);
+  } else if (m.t === 'arm' && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
+    ripArm(bots[m.i], m.s, null, true, false);
+  } else if (m.t === 'grab' && okVec(m.p) && typeof m.by === 'string') {
+    applyGrab(m.p, m.by);
   } else if (m.t === 'knock' && okVec(m.v)) {
     applyKnock(new V().fromArray(m.v), typeof m.by === 'string' ? m.by : null);
   } else if (m.t === 'kn' && m.by !== net.myId && okVec(m.o) && okVec(m.v)) {
@@ -3614,6 +3879,9 @@ function netTick() {
   }
 }
 setInterval(netTick, 66);
+const idLine = document.getElementById('idline');
+idLine.textContent = 'your player ID: ' + playerId + ' (checking…)';
+findPlayerId();
 
 let resumeRoom = '';
 document.addEventListener('visibilitychange', () => {
