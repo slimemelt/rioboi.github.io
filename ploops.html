@@ -19,6 +19,9 @@ h1{font-size:clamp(64px,14vw,132px);font-weight:700;line-height:.9;color:#2fbfa8
 .fields{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
 #nick,#room{font:500 18px Fredoka,system-ui,sans-serif;padding:10px 16px;border-radius:999px;border:3px solid #17322a;background:#fff;color:#17322a;width:190px;outline:none}
 #room{width:130px}
+.swatches{display:flex;gap:8px;justify-content:center}
+.swatches button{width:30px;height:30px;padding:0;border-radius:50%;box-shadow:none;border:3px solid transparent}
+.swatches button.on{border-color:#17322a}
 .fields label{font-weight:500;display:flex;gap:6px;align-items:center;cursor:pointer}
 #netline{font-size:15px;font-weight:500;min-height:1em}
 button{font:700 20px Fredoka,system-ui,sans-serif;padding:14px 26px;border:0;border-radius:999px;background:#17322a;color:#fff;cursor:pointer;box-shadow:0 5px 0 #0b1a15;transition:transform .08s}
@@ -41,17 +44,20 @@ button:disabled{opacity:.45;cursor:default}
     <input id="nick" maxlength="14" placeholder="your name" autocomplete="off" spellcheck="false">
     <input id="room" maxlength="16" placeholder="room" autocomplete="off" spellcheck="false">
     <label><input type="checkbox" id="online" checked> online</label>
+    <label><input type="checkbox" id="voice"> voice chat</label>
+  </div>
+  <div class="swatches" id="swatches">
   </div>
   <div class="btns">
     <button id="vr" disabled>Looking for a headset…</button>
     <button id="flat" class="alt">Play on desktop</button>
   </div>
   <ul class="how">
-    <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
+    <li><b>VR</b> — left stick to walk (click it to sprint), A to jump, right stick to turn. X opens your watch for name, color and mic.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
-    <li><b>Chainsaw</b> — press A in VR to swap between blaster and chainsaw, hold the trigger to rev it into Ploops. Desktop: 1 blaster, 2 chainsaw, hold click to rev.</li>
+    <li><b>Chainsaw</b> — press B in VR to swap between blaster and chainsaw, hold the trigger to rev it into Ploops. Desktop: 1 blaster, 2 chainsaw, hold click to rev.</li>
   </ul>
   <p id="netline">offline</p>
   <p id="note"></p>
@@ -572,7 +578,7 @@ const wristPaint = textCanvas(256, 128, (x, w, h) => {
   x.font = '700 50px Fredoka, sans-serif';
   x.fillText(`${you.kills} splats`, w / 2, 50);
   x.font = '500 28px Fredoka, sans-serif';
-  x.fillText(you.weapon === 'saw' ? 'chainsaw' : 'blaster', w / 2, 96);
+  x.fillText(`${you.weapon === 'saw' ? 'chainsaw' : 'blaster'} · X menu`, w / 2, 96);
 });
 const wrist = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.06), new THREE.MeshBasicMaterial({ map: wristPaint.tex, transparent: true }));
 wrist.position.set(0, 0.035, 0.06);
@@ -706,85 +712,62 @@ function snapTurn() {
   }
 }
 
-function heightAdjust(dt) {
-  const h = hands.find(h => h.src && h.src.handedness === 'left' && h.src.gamepad);
-  if (!h) return;
-  const ax = h.src.gamepad.axes;
-  const y = ax.length >= 4 ? ax[3] : 0;
-  if (Math.abs(y) < 0.5) return;
-  const next = clamp(drop - y * 0.6 * dt, 0.2, 1.3);
-  rig.position.y -= next - drop;
-  drop = next;
-}
 
+let jumpWas = false;
 function vrMove(dt, now) {
   const prevY = rig.position.y;
-  rig.updateMatrixWorld(true);
-  moveSum.set(0, 0, 0);
-  let n = 0;
-  for (const h of hands) {
-    if (!h.src || !h.grip.visible) { h.touching = false; continue; }
-    if (now < noTouchUntil) { h.touching = false; continue; }
-    h.speed = h.grip.position.distanceTo(h.lastLocal) / dt;
-    h.lastLocal.copy(h.grip.position);
-    h.grip.getWorldPosition(h.target);
-    tA.copy(h.target);
-    if (h.touching) {
-      if (pushOut(tA, HAND_R + 0.025)) {
-        moveSum.add(tB.subVectors(h.anchor, h.target));
-        n++;
-      } else h.touching = false;
-    } else {
-      const hit = pushOut(tA, HAND_R);
-      if (hit) {
-        h.touching = true;
-        h.anchor.copy(tA);
-        moveSum.add(tB.subVectors(tA, h.target));
-        n++;
-        if (now - h.lastTap > 90) {
-          h.lastTap = now;
-          const loud = clamp(h.speed * 0.07, 0.03, 0.32);
-          blip(hit.pitch * (0.9 + Math.random() * 0.2), 0.07, 'triangle', loud, 0.55);
-          const act = h.src.gamepad && h.src.gamepad.hapticActuators && h.src.gamepad.hapticActuators[0];
-          if (act && act.pulse) { try { act.pulse(clamp(loud * 2.5, 0.1, 0.8), 25); } catch (e) {} }
-        }
-      }
-    }
+  const left = hands.find(h => h.src && h.src.handedness === 'left' && h.src.gamepad);
+  const right = hands.find(h => h.src && h.src.handedness === 'right' && h.src.gamepad);
+  let mx = 0, my = 0, sprint = false;
+  if (left) {
+    const ax = left.src.gamepad.axes;
+    mx = ax.length >= 4 ? ax[2] : ax[0] || 0;
+    my = ax.length >= 4 ? ax[3] : ax[1] || 0;
+    const click = left.src.gamepad.buttons[3];
+    sprint = !!(click && click.pressed);
   }
-  const holding = n > 0;
-  if (holding) {
-    moveSum.divideScalar(n);
-    if (moveSum.length() > 0.6) moveSum.setLength(0.6);
-    rig.position.add(moveSum);
-    history.push(moveSum.clone().divideScalar(dt));
-    if (history.length > 6) history.shift();
-    vel.set(0, 0, 0);
-  } else {
-    if (wasTouching && history.length) {
-      vel.set(0, 0, 0);
-      for (const v of history) vel.add(v);
-      vel.divideScalar(history.length).multiplyScalar(1.15);
-      if (vel.length() > 7) vel.setLength(7);
-    }
-    history.length = 0;
-    vel.y -= 9.8 * dt;
-    rig.position.addScaledVector(vel, dt);
+  if (Math.hypot(mx, my) < 0.15) {
+    mx = 0;
+    my = 0;
   }
-  wasTouching = holding;
-  body(prevY, dt, holding);
+  camera.getWorldDirection(tA);
+  tA.y = 0;
+  if (tA.lengthSq() < 1e-4) tA.set(0, 0, -1);
+  tA.normalize();
+  tB.set(-tA.z, 0, tA.x);
+  moveSum.set(0, 0, 0).addScaledVector(tA, -my).addScaledVector(tB, mx);
+  if (moveSum.length() > 1) moveSum.normalize();
+  moveSum.multiplyScalar(sprint ? 5.2 : 3.2);
+  vel.x = moveSum.x + knock.x;
+  vel.z = moveSum.z + knock.z;
+  knock.multiplyScalar(Math.exp(-2.5 * dt));
+  const a = !!(right && right.src.gamepad.buttons[4] && right.src.gamepad.buttons[4].pressed);
+  if (a && !jumpWas && grounded && !watchOpen) vel.y = 5.2;
+  jumpWas = a;
+  vel.y -= 9.8 * dt;
+  rig.position.addScaledVector(vel, dt);
+  body(prevY, dt, false);
   snapTurn();
-  heightAdjust(dt);
   rig.updateMatrixWorld(true);
   for (const h of hands) {
     const on = !!(h.src && h.grip.visible);
     h.mesh.visible = on;
-    if (!on) continue;
-    h.grip.getWorldPosition(h.target);
-    if (h.touching) h.vis.copy(h.anchor);
-    else {
-      h.vis.copy(h.target);
-      pushOut(h.vis, HAND_R);
+    if (!on) {
+      h.touching = false;
+      continue;
     }
+    h.speed = h.grip.position.distanceTo(h.lastLocal) / dt;
+    h.lastLocal.copy(h.grip.position);
+    h.grip.getWorldPosition(h.target);
+    h.vis.copy(h.target);
+    const hit = pushOut(h.vis, HAND_R);
+    if (hit && !h.touching && now - h.lastTap > 90) {
+      h.lastTap = now;
+      const loud = clamp(h.speed * 0.07, 0.03, 0.3);
+      blip(hit.pitch * (0.9 + Math.random() * 0.2), 0.07, 'triangle', loud, 0.55);
+      pulse(h, clamp(loud * 2.5, 0.1, 0.7), 25);
+    }
+    h.touching = !!hit;
     h.mesh.position.copy(h.vis);
     h.grip.getWorldQuaternion(h.mesh.quaternion);
   }
@@ -1872,7 +1855,7 @@ function interact(dt, now) {
       curlHand(h.model, h.hold || h.half ? 0.6 : Math.max(grip, trig * 0.35));
       const down = grip > 0.6;
       if (down && !h.gripWas && !h.hold && !h.half) {
-        const b = grabbable(h.vis, 0.45);
+        const b = grabbable(h.vis, 0.6);
         if (b) grab(h, b);
       } else if (!down && h.gripWas) {
         if (h.hold) letGo(h);
@@ -2035,16 +2018,8 @@ function swapWeapon() {
 
 function applyKnock(v) {
   if (v.length() > 12) v.setLength(12);
-  if (renderer.xr.isPresenting) {
-    vel.copy(v);
-    history.length = 0;
-    wasTouching = false;
-    for (const h of hands) h.touching = false;
-    noTouchUntil = performance.now() + 250;
-  } else {
-    knock.set(v.x, 0, v.z);
-    vel.y = Math.max(vel.y, v.y);
-  }
+  knock.set(v.x, 0, v.z);
+  vel.y = Math.max(vel.y, v.y);
   buzz(1, 200);
   noiseBurst(0.25, 'lowpass', 260, 1.2);
 }
@@ -2080,7 +2055,7 @@ function weapons(dt) {
   if (vr) {
     const h = hands.find(x => x.src && x.src.handedness === 'right');
     const gp = h && h.src.gamepad;
-    const a = !!(gp && gp.buttons[4] && gp.buttons[4].pressed);
+    const a = !!(gp && gp.buttons[5] && gp.buttons[5].pressed);
     if (a && !swapWas) swapWeapon();
     swapWas = a;
     if (you.weapon === 'gun') {
@@ -2185,7 +2160,7 @@ vrBtn.addEventListener('click', async () => {
     await renderer.xr.setSession(session);
     if (document.pointerLockElement) document.exitPointerLock();
     mode = 'vr';
-    drop = 0.85;
+    drop = 0;
     rig.rotation.y = 0;
     respawn();
     menu.classList.add('hide');
@@ -2242,6 +2217,338 @@ nickInput.value = you.name;
 roomInput.value = stored('ploops-room') || 'main';
 handMat.color.set(you.css);
 
+const voiceBox = document.getElementById('voice');
+const swatchRow = document.getElementById('swatches');
+voiceBox.checked = stored('ploops-voice') === '1';
+let micStream = null;
+let silentStream = null;
+let micMuted = false;
+const calls = new Map();
+
+function outStream() {
+  if (micStream) return micStream;
+  if (!silentStream && ac) silentStream = ac.createMediaStreamDestination().stream;
+  return silentStream;
+}
+
+async function enableMic() {
+  if (micStream) return true;
+  wakeAudio();
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    applyMute();
+    refreshCalls();
+    watchPaint.redraw();
+    return true;
+  } catch (e) {
+    voiceBox.checked = false;
+    store('ploops-voice', '0');
+    note.textContent = "Couldn't get your mic. Check the browser's microphone permission.";
+    watchPaint.redraw();
+    return false;
+  }
+}
+
+function applyMute() {
+  if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
+}
+
+function placeSound(node, at) {
+  if (node.positionX) {
+    node.positionX.value = at.x;
+    node.positionY.value = at.y;
+    node.positionZ.value = at.z;
+  } else node.setPosition(at.x, at.y, at.z);
+}
+
+const earPos = new V(), earFwd = new V(), earUp = new V(), earQ = new THREE.Quaternion();
+function updateListener() {
+  if (!ac) return;
+  camera.getWorldPosition(earPos);
+  camera.getWorldQuaternion(earQ);
+  earFwd.set(0, 0, -1).applyQuaternion(earQ);
+  earUp.set(0, 1, 0).applyQuaternion(earQ);
+  const l = ac.listener;
+  if (l.positionX) {
+    l.positionX.value = earPos.x;
+    l.positionY.value = earPos.y;
+    l.positionZ.value = earPos.z;
+    l.forwardX.value = earFwd.x;
+    l.forwardY.value = earFwd.y;
+    l.forwardZ.value = earFwd.z;
+    l.upX.value = earUp.x;
+    l.upY.value = earUp.y;
+    l.upZ.value = earUp.z;
+  } else {
+    l.setPosition(earPos.x, earPos.y, earPos.z);
+    l.setOrientation(earFwd.x, earFwd.y, earFwd.z, earUp.x, earUp.y, earUp.z);
+  }
+}
+
+function hangUp(id) {
+  const v = calls.get(id);
+  if (!v) return;
+  calls.delete(id);
+  try { v.call.close(); } catch (e) {}
+  if (v.src) v.src.disconnect();
+  if (v.el) v.el.srcObject = null;
+}
+
+function attachCall(call) {
+  const id = call.peer;
+  if (calls.has(id)) hangUp(id);
+  const v = { call, el: null, src: null, panner: null };
+  calls.set(id, v);
+  call.on('stream', stream => {
+    if (calls.get(id) !== v || !ac || v.src) return;
+    v.el = new Audio();
+    v.el.muted = true;
+    v.el.srcObject = stream;
+    v.el.play().catch(() => {});
+    v.src = ac.createMediaStreamSource(stream);
+    v.panner = ac.createPanner();
+    v.panner.panningModel = 'HRTF';
+    v.panner.distanceModel = 'inverse';
+    v.panner.refDistance = 1.5;
+    v.panner.maxDistance = 80;
+    const g = ac.createGain();
+    g.gain.value = 1.6;
+    v.src.connect(v.panner).connect(g).connect(ac.destination);
+  });
+  const drop = () => { if (calls.get(id) === v) calls.delete(id); };
+  call.on('close', drop);
+  call.on('error', drop);
+}
+
+function answerCall(call) {
+  if (!voiceBox.checked || !ac) {
+    call.close();
+    return;
+  }
+  call.answer(outStream());
+  attachCall(call);
+}
+
+function callPeer(id) {
+  if (!net.peer || !ac || !voiceBox.checked || !remotes.has(id)) return;
+  const stream = outStream();
+  if (!stream) return;
+  try { attachCall(net.peer.call(id, stream)); } catch (e) {}
+}
+
+function refreshCalls() {
+  for (const id of [...calls.keys()]) hangUp(id);
+  for (const r of remotes.values()) callPeer(r.id);
+}
+
+voiceBox.addEventListener('change', () => {
+  store('ploops-voice', voiceBox.checked ? '1' : '0');
+  if (voiceBox.checked) enableMic();
+  else {
+    for (const id of [...calls.keys()]) hangUp(id);
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  watchPaint.redraw();
+});
+
+function setColor(c) {
+  if (!PALETTE.includes(c)) return;
+  you.css = c;
+  store('ploops-color', c);
+  [...swatchRow.children].forEach(b => b.classList.toggle('on', b.dataset.c === c));
+  board.redraw();
+  watchPaint.redraw();
+}
+
+function setName(n) {
+  const clean = cleanName(n);
+  if (!clean) return;
+  you.name = clean;
+  nickInput.value = clean;
+  store('ploops-name', clean);
+  board.redraw();
+  watchPaint.redraw();
+}
+
+for (const c of PALETTE) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.c = c;
+  b.style.background = c;
+  b.setAttribute('aria-label', 'color ' + c);
+  b.addEventListener('click', () => setColor(c));
+  swatchRow.appendChild(b);
+}
+[...swatchRow.children].forEach(b => b.classList.toggle('on', b.dataset.c === you.css));
+
+let watchOpen = false;
+let watchPage = 'main';
+let draftName = '';
+let watchTouch = false;
+let watchBtnWas = false;
+const watchButtons = [];
+const WW = 720, WH = 540, PW = 0.42, PH = 0.315;
+const watchPaint = textCanvas(WW, WH, (x, w, h) => {
+  watchButtons.length = 0;
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = 'rgba(17,32,27,.94)';
+  roundRect(x, 0, 0, w, h, 36);
+  x.fill();
+  x.textBaseline = 'middle';
+  const btn = (bx, by, bw, bh, label, act, fill = '#2b4a40', color = '#fff') => {
+    x.fillStyle = fill;
+    roundRect(x, bx, by, bw, bh, 18);
+    x.fill();
+    x.fillStyle = color;
+    x.textAlign = 'center';
+    x.font = '700 30px Fredoka, sans-serif';
+    x.fillText(label, bx + bw / 2, by + bh / 2 + 2);
+    watchButtons.push({ x: bx, y: by, w: bw, h: bh, act });
+  };
+  if (watchPage === 'main') {
+    x.textAlign = 'left';
+    x.fillStyle = '#5fe0c8';
+    x.font = '700 44px Fredoka, sans-serif';
+    x.fillText('PLOOPS', 40, 52);
+    x.fillStyle = '#fff';
+    x.font = '500 32px Fredoka, sans-serif';
+    x.fillText(you.name, 40, 120);
+    btn(500, 88, 180, 64, 'rename', 'edit');
+    PALETTE.forEach((c, i) => {
+      const cx = 70 + i * 83, cy = 215;
+      x.fillStyle = c;
+      x.beginPath();
+      x.arc(cx, cy, 32, 0, Math.PI * 2);
+      x.fill();
+      if (c === you.css) {
+        x.lineWidth = 6;
+        x.strokeStyle = '#fff';
+        x.stroke();
+      }
+      watchButtons.push({ x: cx - 38, y: cy - 38, w: 76, h: 76, act: 'color:' + i });
+    });
+    const mic = !voiceBox.checked ? 'voice: off' : !micStream ? 'mic: waiting' : micMuted ? 'mic: muted' : 'mic: on';
+    btn(40, 290, 310, 76, mic, 'mic', micMuted || !voiceBox.checked ? '#6b2a24' : '#2b4a40');
+    btn(370, 290, 310, 76, you.weapon === 'saw' ? 'chainsaw' : 'blaster', 'weapon');
+    btn(220, 420, 280, 76, 'close', 'close', '#3fd0c9', '#17322a');
+  } else {
+    x.fillStyle = '#fff';
+    roundRect(x, 40, 30, 640, 70, 18);
+    x.fill();
+    x.fillStyle = '#17322a';
+    x.textAlign = 'left';
+    x.font = '700 36px Fredoka, sans-serif';
+    x.fillText(draftName + '|', 62, 66);
+    ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'].forEach((row, r) => {
+      const start = 40 + r * 33;
+      [...row].forEach((ch, i) => btn(start + i * 64, 120 + r * 74, 58, 64, ch, 'key:' + ch));
+    });
+    btn(40, 345, 150, 64, 'del', 'del');
+    btn(200, 345, 160, 64, 'space', 'key: ');
+    btn(370, 345, 150, 64, '123', 'nums');
+    btn(530, 345, 150, 64, '!?', 'sym');
+    btn(40, 440, 300, 76, 'cancel', 'cancel', '#6b2a24');
+    btn(380, 440, 300, 76, 'done', 'done', '#3fd0c9', '#17322a');
+  }
+});
+const watchPanel = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: watchPaint.tex, transparent: true, depthTest: false }));
+watchPanel.renderOrder = 10;
+watchPanel.visible = false;
+scene.add(watchPanel);
+const fingertip = new V();
+const panelLocal = new V();
+const numberCycle = '0123456789';
+const symbolCycle = "!?.-'_";
+
+function openWatch() {
+  watchOpen = true;
+  watchPage = 'main';
+  headPos(headV);
+  camera.getWorldDirection(tA);
+  tA.y = 0;
+  tA.normalize();
+  watchPanel.position.copy(headV).addScaledVector(tA, 0.42);
+  watchPanel.position.y -= 0.18;
+  watchPanel.lookAt(headV);
+  watchPanel.visible = true;
+  watchPaint.redraw();
+  blip(880, 0.08, 'sine', 0.12, 1.3);
+}
+
+function closeWatch() {
+  watchOpen = false;
+  watchPanel.visible = false;
+  blip(620, 0.08, 'sine', 0.1, 0.7);
+}
+
+function watchAct(act) {
+  if (act.startsWith('color:')) setColor(PALETTE[+act.slice(6)]);
+  else if (act === 'edit') {
+    watchPage = 'name';
+    draftName = you.name;
+  } else if (act === 'mic') {
+    if (!voiceBox.checked) {
+      voiceBox.checked = true;
+      store('ploops-voice', '1');
+      enableMic();
+    } else {
+      micMuted = !micMuted;
+      applyMute();
+    }
+  } else if (act === 'weapon') swapWeapon();
+  else if (act === 'close') closeWatch();
+  else if (act.startsWith('key:')) draftName = (draftName + act.slice(4)).slice(0, 14);
+  else if (act === 'nums') draftName = (draftName + numberCycle[draftName.length % 10]).slice(0, 14);
+  else if (act === 'sym') draftName = (draftName + symbolCycle[draftName.length % symbolCycle.length]).slice(0, 14);
+  else if (act === 'del') draftName = draftName.slice(0, -1);
+  else if (act === 'cancel') watchPage = 'main';
+  else if (act === 'done') {
+    setName(draftName);
+    watchPage = 'main';
+  }
+  watchPaint.redraw();
+}
+
+function updateWatch() {
+  if (!renderer.xr.isPresenting) {
+    if (watchOpen) closeWatch();
+    return;
+  }
+  const left = hands.find(h => h.src && h.src.handedness === 'left' && h.src.gamepad);
+  const x = !!(left && left.src.gamepad.buttons[4] && left.src.gamepad.buttons[4].pressed);
+  if (x && !watchBtnWas) {
+    if (watchOpen) closeWatch();
+    else openWatch();
+  }
+  watchBtnWas = x;
+  if (!watchOpen) return;
+  headPos(headV);
+  if (headV.distanceTo(watchPanel.position) > 1.4) {
+    closeWatch();
+    return;
+  }
+  const right = hands.find(h => h.src && h.src.handedness === 'right' && h.mesh.visible);
+  if (!right) return;
+  fingertip.set(0, 0, -0.09);
+  right.mesh.localToWorld(fingertip);
+  panelLocal.copy(fingertip);
+  watchPanel.worldToLocal(panelLocal);
+  const inside = Math.abs(panelLocal.x) < PW / 2 && Math.abs(panelLocal.y) < PH / 2;
+  if (inside && Math.abs(panelLocal.z) < 0.025) {
+    if (!watchTouch) {
+      watchTouch = true;
+      const u = (panelLocal.x / PW + 0.5) * WW, v = (0.5 - panelLocal.y / PH) * WH;
+      const hit = watchButtons.find(b => u >= b.x && u <= b.x + b.w && v >= b.y && v <= b.y + b.h);
+      if (hit) {
+        pulse(right, 0.4, 30);
+        blip(760, 0.05, 'sine', 0.1, 1.2);
+        watchAct(hit.act);
+      }
+    }
+  } else if (!inside || Math.abs(panelLocal.z) > 0.04) watchTouch = false;
+}
+
 function applyMenu() {
   you.name = cleanName(nickInput.value) || you.name;
   nickInput.value = you.name;
@@ -2251,6 +2558,7 @@ function applyMenu() {
   store('ploops-room', room);
   if (onlineBox.checked) goOnline(room);
   else goOffline();
+  if (voiceBox.checked && !micStream) enableMic();
   board.redraw();
   wristPaint.redraw();
 }
@@ -2333,6 +2641,7 @@ function addRemote(id, name, css) {
     return m;
   });
   r.av = { g, mat, paws, label, sprite };
+  if (voiceBox.checked && net.myId && net.myId < id) setTimeout(() => callPeer(id), 600);
   remotes.set(id, r);
   rebuildPlayers();
   return r;
@@ -2341,6 +2650,7 @@ function addRemote(id, name, css) {
 function removeRemote(id) {
   const r = remotes.get(id);
   if (!r) return;
+  hangUp(id);
   scene.remove(r.av.g);
   r.av.paws.forEach(m => scene.remove(m));
   r.av.label.tex.dispose();
@@ -2364,6 +2674,7 @@ function applyPose(r, m) {
     r.name = name;
     r.av.label.redraw();
   }
+  if (PALETTE.includes(m.c)) r.css = m.c;
   r.seen = performance.now();
 }
 
@@ -2389,6 +2700,8 @@ function updateRemotes(dt) {
     r.av.paws[0].position.copy(r.hands[0]);
     r.av.paws[1].position.copy(r.hands[1]);
     r.av.mat.color.set(r.it ? IT_RED : r.css);
+    const v = calls.get(r.id);
+    if (v && v.panner) placeSound(v.panner, r.head);
   }
 }
 
@@ -2566,6 +2879,7 @@ function clearRemotes() {
 
 function goOffline() {
   clearTimeout(net.retry);
+  for (const id of [...calls.keys()]) hangUp(id);
   const old = net.peer;
   net.peer = null;
   net.host = null;
@@ -2604,6 +2918,9 @@ function goOnline(room) {
     if (net.peer !== p) return;
     net.role = 'host';
     net.myId = id;
+  });
+  p.on('call', answerCall);
+  p.on('open', () => {
     netline.textContent = `online · room "${room}" · you're hosting`;
   });
   p.on('connection', c => {
@@ -2636,6 +2953,7 @@ function goOnline(room) {
 function joinRoom(hostId, room) {
   const p = new Peer({ debug: 0 });
   net.peer = p;
+  p.on('call', answerCall);
   p.on('open', id => {
     if (net.peer !== p) return;
     net.myId = id;
@@ -2715,6 +3033,8 @@ renderer.setAnimationLoop(() => {
     updateBots(dt, playing);
   }
   updateRemotes(dt);
+  updateWatch();
+  updateListener();
   updateChunks(dt);
   updateDrops(dt);
   updateTracers(dt);
