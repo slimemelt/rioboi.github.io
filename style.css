@@ -112,7 +112,6 @@ a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 .item li { margin: .15em 0; }
 .item li a { color: var(--c, var(--blue)); font-weight: 700; }
 
-/* john mist page */
 html.john { background: #000 url(img/john.png) 0 46.4% / 100% 241.8% no-repeat fixed; }
 .col.dark { background: #000; padding: 0; gap: 0; }
 .jhero { position: relative; aspect-ratio: 7056 / 2918; background: url(img/john.png) 0 calc(var(--u) * -27.2) / 100% auto no-repeat; color: #fff; margin: 0; font-weight: 400; line-height: 1; }
