@@ -50,7 +50,7 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>VR</b> — grab the ground, walls and trees and push off to move. Swing hard and let go to leap. Right stick snap-turns, left stick up/down moves the ground closer or further.</li>
     <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, Esc to pause.</li>
     <li>Red Ploop is it. If that's you, touch someone. If not, run.</li>
-    <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands for a cheese pull, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
+    <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back. They're armed too, and they hate each other.</li>
   </ul>
   <p id="netline">offline</p>
@@ -927,7 +927,7 @@ function updateTracers(dt) {
 const dummy = new THREE.Object3D();
 const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
-const SPLATS = 700;
+const SPLATS = 900;
 const splatGeo = new THREE.CircleGeometry(1, 12);
 splatGeo.rotateX(-Math.PI / 2);
 const splatMesh = new THREE.InstancedMesh(splatGeo, new THREE.MeshLambertMaterial({ color: 0x7d0606, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), SPLATS);
@@ -1017,7 +1017,7 @@ function nearestFace(p, b) {
   return faceNormal;
 }
 
-const DROPS = 1400;
+const DROPS = 2400;
 const dropMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.028, 0), new THREE.MeshLambertMaterial({ color: 0xb01010 }), DROPS);
 dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 dropMesh.frustumCulled = false;
@@ -1080,6 +1080,21 @@ const darkMeatMat = new THREE.MeshLambertMaterial({ color: 0x5a0808 });
 const boneMat = new THREE.MeshLambertMaterial({ color: 0xefe6d2 });
 const gutGeo = new THREE.CylinderGeometry(0.035, 0.03, 0.24, 8);
 const gutMat = new THREE.MeshLambertMaterial({ color: 0xd9707a });
+const heartGeo = new THREE.SphereGeometry(0.07, 10, 8);
+heartGeo.scale(1, 1.25, 0.9);
+const kidneyGeo = new THREE.SphereGeometry(0.05, 10, 8);
+kidneyGeo.scale(1.5, 0.8, 0.8);
+const lungGeo = new THREE.SphereGeometry(0.08, 10, 8);
+lungGeo.scale(0.8, 1.3, 0.6);
+const liverGeo = new THREE.SphereGeometry(0.09, 10, 8);
+liverGeo.scale(1.6, 0.55, 1);
+const organMats = new Map([
+  [heartGeo, new THREE.MeshLambertMaterial({ color: 0x8e0c12 })],
+  [kidneyGeo, new THREE.MeshLambertMaterial({ color: 0x5c1414 })],
+  [lungGeo, new THREE.MeshLambertMaterial({ color: 0xe08a94 })],
+  [liverGeo, new THREE.MeshLambertMaterial({ color: 0x4a0d0d })]
+]);
+const organMat = geo => organMats.get(geo);
 const brainMat = new THREE.MeshLambertMaterial({ color: 0xe8a3ae });
 const chunks = [];
 const bounce = new V();
@@ -1094,7 +1109,7 @@ function fling(mesh, pos, push, size, radius, vel) {
   const spin = new V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(24);
   const c = { m: mesh, v, spin, life: 9 + Math.random() * 5, size, r: radius * size, bleeds: Math.random() < 0.6 };
   chunks.push(c);
-  if (chunks.length > 260) {
+  if (chunks.length > 320) {
     const old = chunks.shift();
     scene.remove(old.m);
   }
@@ -1151,7 +1166,14 @@ function squelch() {
   blip(110, 0.35, 'sine', 0.45, 0.35);
 }
 
-function gore(b, center, push, body, meat, guts, brains, bones, eyes) {
+function gore(b, center, push, body, meat, guts, brains, bones, eyes, organs = 4) {
+  const set = [heartGeo, kidneyGeo, kidneyGeo, lungGeo, lungGeo, liverGeo];
+  for (let i = 0; i < organs; i++) {
+    const geo = set[i % set.length];
+    const c = fling(new THREE.Mesh(geo, organMat(geo)), center, push, 0.9 + Math.random() * 0.3, 0.07);
+    c.bleeds = true;
+    c.life += 6;
+  }
   for (let i = 0; i < body; i++) fling(new THREE.Mesh(chunkGeo, b.goreMat), center, push, 0.6 + Math.random() * 1.6, 0.07);
   for (let i = 0; i < meat; i++) fling(new THREE.Mesh(chunkGeo, Math.random() < 0.5 ? meatMat : darkMeatMat), center, push, 0.5 + Math.random() * 1.3, 0.07);
   for (let i = 0; i < guts; i++) fling(new THREE.Mesh(gutGeo, gutMat), center, push, 0.8 + Math.random() * 0.8, 0.06);
@@ -1178,8 +1200,9 @@ function burst(b, push, kind = 'boom') {
   const ground = floorAt(center.x, center.z, center.y);
   scream(center);
   if (kind === 'eat') {
-    gore(b, center, push, 4, 10, 2, 0, 2, 2);
-    spray(center, push, 160, 2.5);
+    gore(b, center, push, 6, 16, 4, 2, 3, 2, 3);
+    spray(center, push, 320, 3);
+    fountain(center, 1.5);
     crunch();
   } else if (kind === 'squish') {
     const cake = new THREE.Mesh(cakeGeo, b.goreMat);
@@ -1188,26 +1211,29 @@ function burst(b, push, kind = 'boom') {
     c.spin.set(0, 0, 0);
     c.life += 10;
     c.bleeds = true;
-    gore(b, center, new V(), 12, 16, 6, 4, 6, 2);
-    spray(center, new V(), 380, 7);
-    for (let i = 0; i < 16; i++) {
+    gore(b, center, new V(), 16, 24, 10, 6, 8, 2, 6);
+    spray(center, new V(), 600, 7.5);
+    for (let i = 0; i < 24; i++) {
       const a = Math.random() * Math.PI * 2, r = 0.3 + Math.random() * 1.4;
       splat(center.x + Math.cos(a) * r, ground, center.z + Math.sin(a) * r, 0.15 + Math.random() * 0.35);
     }
     pool(center.x, ground, center.z, 1.3);
     squelch();
   } else if (kind === 'rip') {
-    gore(b, center, new V(), 6, 14, 10, 4, 4, 0);
-    spray(center, push, 180, 4);
-    spray(center, push.clone().negate(), 180, 4);
-    pool(center.x, ground, center.z, 1);
+    gore(b, center, new V(), 10, 22, 14, 5, 6, 0, 4);
+    spray(center, push, 300, 4.5);
+    spray(center, push.clone().negate(), 300, 4.5);
+    spray(center, new V(0, -1, 0), 200, 2);
+    pool(center.x, ground, center.z, 1.4);
+    fountain(center, 2.5);
     ripSound();
   } else {
     mist(center);
-    gore(b, center, push, 24, 22, 8, 6, 8, 2);
-    spray(center, push, 340, 6.5);
-    pool(center.x, ground, center.z, 0.9 + Math.random() * 0.4);
-    for (let i = 0; i < 12; i++) splat(center.x + (Math.random() - 0.5) * 1.4, ground, center.z + (Math.random() - 0.5) * 1.4, 0.2 + Math.random() * 0.4);
+    gore(b, center, push, 30, 30, 12, 8, 10, 2, 6);
+    spray(center, push, 560, 7);
+    pool(center.x, ground, center.z, 1.1 + Math.random() * 0.5);
+    fountain(new V(center.x, ground + 0.05, center.z), 2);
+    for (let i = 0; i < 20; i++) splat(center.x + (Math.random() - 0.5) * 1.4, ground, center.z + (Math.random() - 0.5) * 1.4, 0.2 + Math.random() * 0.4);
     squelch();
   }
   b.size = 1;
@@ -1481,6 +1507,7 @@ function throwBot(b, v) {
 
 function killBot(b, kind, push) {
   if (!b.alive) return;
+  handBlood = 1;
   if (net.role === 'client') {
     burst(b, push, kind);
     if (net.host && net.host.open) {
@@ -1527,6 +1554,8 @@ function flyStep(b, dt) {
 
 function biteBot(b, now) {
   b.biteAt = now + 450;
+  handBlood = Math.min(1, handBlood + 0.4);
+  fountain(b.pos.clone(), 0.6);
   b.bites++;
   if (b.bites >= 3) {
     killBot(b, 'eat', new V(0, -1, 0));
@@ -1573,9 +1602,46 @@ function ripBot(b, pa, pb, ha, hb) {
   } else {
     deskRip = { t: 0, A, B };
   }
-  startCheese(A, B);
+  startTether(A, B);
   killBot(b, 'rip', axis);
   buzz(1, 220);
+}
+
+const fountains = [];
+function fountain(at, seconds) {
+  fountains.push({ at, life: seconds, dir: new V(Math.random() - 0.5, 1.6, Math.random() - 0.5).normalize() });
+}
+function updateFountains(dt) {
+  for (let i = fountains.length - 1; i >= 0; i--) {
+    const f = fountains[i];
+    f.life -= dt;
+    if (f.life <= 0) {
+      fountains.splice(i, 1);
+      continue;
+    }
+    const beat = 0.5 + 0.5 * Math.sin(performance.now() / 110);
+    spray(f.at, f.dir.clone().multiplyScalar(1 + beat * 2.5 * Math.min(1, f.life)), Math.ceil(beat * 4), 0.6);
+  }
+  for (const h of hands) {
+    if (!h.half) continue;
+    holdTmp.set(0, -1, 0).applyQuaternion(h.half.quaternion);
+    if (Math.random() < 0.7) spray(h.half.position.clone().addScaledVector(holdTmp, 0.03), holdTmp.clone().multiplyScalar(1.5), 2, 0.4);
+  }
+  if (deskRip) {
+    for (const m of [deskRip.A, deskRip.B]) {
+      holdTmp.set(0, -1, 0).applyQuaternion(m.quaternion);
+      if (Math.random() < 0.7) spray(m.position.clone(), holdTmp.clone().multiplyScalar(1.5), 2, 0.4);
+    }
+  }
+}
+
+let handBlood = 0;
+const handBase = new THREE.Color();
+const handStain = new THREE.Color(0x5e0000);
+function stainHands(dt) {
+  handBlood = Math.max(0, handBlood - dt / 25);
+  handBase.set(you.it ? IT_RED : you.css);
+  handMat.color.copy(handBase).lerp(handStain, Math.min(0.85, handBlood * 0.85));
 }
 
 function dropHalf(h) {
@@ -1589,23 +1655,39 @@ function dropHalf(h) {
 
 const BEADS = 18;
 const beadGeo = new THREE.SphereGeometry(1, 6, 4);
-const cheeseMat = new THREE.MeshLambertMaterial({ color: 0xffc83d, emissive: 0x3a2400 });
-const beadMesh = new THREE.InstancedMesh(beadGeo, cheeseMat, 10 * BEADS);
+const sinewMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const STRANDS = 16;
+const beadMesh = new THREE.InstancedMesh(beadGeo, sinewMat, STRANDS * BEADS);
+const strandColors = { blood: new THREE.Color(0x6e0000), meat: new THREE.Color(0xa3191c), gut: new THREE.Color(0xd9707a) };
+for (let i = 0; i < STRANDS * BEADS; i++) beadMesh.setColorAt(i, strandColors.blood);
 beadMesh.count = 0;
 beadMesh.frustumCulled = false;
 beadMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(beadMesh);
-let cheese = null;
+let tether = null;
 const strandA = new V(), strandB = new V(), beadP = new V(), beadNext = new V();
 
-function startCheese(A, B) {
-  const pick = () => new V(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).multiplyScalar(0.2);
-  cheese = {
+function startTether(A, B) {
+  const pick = () => new V(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).multiplyScalar(0.22);
+  const organs = [heartGeo, kidneyGeo, lungGeo, liverGeo];
+  tether = {
     A, B, age: 0,
-    strands: Array.from({ length: 10 }, () => ({
-      ra: pick(), rb: pick(), snap: 0.45 + Math.random() * 1.2, thick: 0.01 + Math.random() * 0.014,
-      sag: 0.6 + Math.random() * 0.8, phase: Math.random() * 6, on: true
-    }))
+    strands: Array.from({ length: STRANDS }, (_, i) => {
+      const kind = i < 3 ? 'gut' : i < 8 ? 'meat' : 'blood';
+      const strand = {
+        kind, ra: pick(), rb: pick(), phase: Math.random() * 6, on: true,
+        snap: (kind === 'gut' ? 1.1 : kind === 'meat' ? 0.7 : 0.5) + Math.random() * 0.9,
+        thick: kind === 'gut' ? 0.026 + Math.random() * 0.01 : kind === 'meat' ? 0.014 + Math.random() * 0.01 : 0.007 + Math.random() * 0.008,
+        sag: kind === 'gut' ? 1.3 + Math.random() * 0.6 : 0.6 + Math.random() * 0.8,
+        organ: null
+      };
+      if (kind === 'gut' && i < 2) {
+        const geo = organs[Math.floor(Math.random() * organs.length)];
+        strand.organ = new THREE.Mesh(geo, organMat(geo));
+        scene.add(strand.organ);
+      }
+      return strand;
+    })
   };
 }
 
@@ -1616,49 +1698,70 @@ function strandPoint(s, t, L, time, out) {
   return out;
 }
 
-function updateCheese(dt) {
-  if (!cheese) return;
-  cheese.age += dt;
+function updateTether(dt) {
+  if (!tether) return;
+  tether.age += dt;
   const time = performance.now() / 1000;
   let n = 0, alive = 0;
-  for (const s of cheese.strands) {
+  for (const s of tether.strands) {
     if (!s.on) continue;
     strandA.copy(s.ra);
-    cheese.A.localToWorld(strandA);
+    tether.A.localToWorld(strandA);
     strandB.copy(s.rb);
-    cheese.B.localToWorld(strandB);
+    tether.B.localToWorld(strandB);
     const L = strandA.distanceTo(strandB);
-    if (L > s.snap || cheese.age > 25) {
+    if (L > s.snap || tether.age > 25) {
       s.on = false;
       if (L > s.snap) {
         stretchSound();
-        spray(strandA.clone().lerp(strandB, 0.5), new V(), 6, 0.8);
+        const mid = strandA.clone().lerp(strandB, 0.5);
+        spray(mid, new V(), s.kind === 'blood' ? 10 : 25, 1.2);
+        splat(mid.x, floorAt(mid.x, mid.z, mid.y), mid.z, 0.15 + Math.random() * 0.2);
+      }
+      if (s.organ) {
+        scene.remove(s.organ);
+        const c = fling(s.organ, s.organ.position.clone(), new V(), 1, 0.07, new V(0, -0.5, 0));
+        c.bleeds = true;
+        c.life = 16;
+        s.organ = null;
       }
       continue;
     }
     alive++;
-    const thin = s.thick * Math.max(0.2, 1 - (L / s.snap) * 0.85);
+    const thin = s.thick * Math.max(0.25, 1 - (L / s.snap) * 0.8);
+    const color = strandColors[s.kind];
     for (let k = 0; k < BEADS; k++) {
       const t = k / (BEADS - 1);
       strandPoint(s, t, L, time, beadP);
       strandPoint(s, Math.min(1, t + 1 / (BEADS - 1)), L, time, beadNext);
       const seg = Math.max(beadP.distanceTo(beadNext), 0.004);
-      const r = thin * (1 + 0.8 * (1 - 4 * t * (1 - t)));
+      const r = thin * (1 + 0.8 * (1 - 4 * t * (1 - t))) * (s.kind === 'gut' ? 1 + 0.25 * Math.sin(t * 40) : 1);
       dummy.position.copy(beadP);
       if (k < BEADS - 1) dummy.lookAt(beadNext);
       dummy.scale.set(r, r, seg * 0.6 + r);
       dummy.updateMatrix();
+      beadMesh.setColorAt(n, color);
       beadMesh.setMatrixAt(n++, dummy.matrix);
+    }
+    if (Math.random() < dt * (s.kind === 'blood' ? 3 : 1.5)) {
+      strandPoint(s, 0.2 + Math.random() * 0.6, L, time, beadP);
+      spray(beadP, new V(0, -1, 0), 1, 0.2);
+    }
+    if (s.organ) {
+      strandPoint(s, 0.5, L, time, s.organ.position);
+      s.organ.position.y -= 0.06;
+      s.organ.rotation.z = Math.sin(time * 3 + s.phase) * 0.4;
     }
   }
   beadMesh.count = n;
   beadMesh.instanceMatrix.needsUpdate = true;
-  if (!alive) cheese = null;
+  if (beadMesh.instanceColor) beadMesh.instanceColor.needsUpdate = true;
+  if (!alive) tether = null;
 }
 
 function placeHalf(m, at, fallback) {
   m.position.copy(at);
-  const other = cheese && (cheese.A === m ? cheese.B : cheese.B === m ? cheese.A : null);
+  const other = tether && (tether.A === m ? tether.B : tether.B === m ? tether.A : null);
   if (other) m.quaternion.setFromUnitVectors(DOWN, holdTmp.subVectors(other.position, at).normalize());
   else if (fallback) m.quaternion.copy(fallback);
 }
@@ -1800,7 +1903,9 @@ function interact(dt, now) {
       deskHands[1].root.position.set(0.2, -0.26, -0.42);
     }
   }
-  updateCheese(dt);
+  updateTether(dt);
+  updateFountains(dt);
+  stainHands(dt);
 }
 
 const menu = document.getElementById('menu');
