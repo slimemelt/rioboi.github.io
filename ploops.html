@@ -62,6 +62,7 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>Arms</b> — hold a Ploop in one hand, grip one of its paws with the other and pull to rip the arm off. Desktop: hold a Ploop and press T.</li>
     <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: tick brawl mode in this menu or press M, then click to punch. Grip someone with your hand (E on desktop) to pick them up, then let go to throw them off the edge. Hits make people ragdoll.</li>
   </ul>
+  <div id="modbox" style="display:none"><b>moderation</b><div id="modlist"></div></div>
   <p id="idline">your player ID: …</p>
   <p id="netline">offline</p>
   <p id="note"></p>
@@ -777,9 +778,32 @@ async function findPlayerId() {
   const hex = [...new Uint8Array(buf)].map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase();
   playerId = 'PL-' + hex.slice(0, 8);
   idLine.textContent = 'your player ID: ' + playerId;
+  loadMod();
+  refreshModBox();
   if (typeof watchPaint !== 'undefined') watchPaint.redraw();
 }
 const knock = new V();
+const ADMINS = ['PL-645C0540'];
+const isAdmin = () => ADMINS.includes(playerId);
+const modLists = { bans: new Set(), vc: new Set() };
+const tempKicks = new Map();
+const blockedRooms = new Map();
+let vcBanned = new Set();
+const PID_RE = /^PL-[0-9A-F]{8}$/;
+const flip = (set, p) => { if (set.has(p)) set.delete(p); else set.add(p); };
+function loadMod() {
+  if (!isAdmin()) return;
+  try {
+    const d = JSON.parse(stored('ploops-mod') || '{}');
+    for (const k of ['bans', 'vc']) if (Array.isArray(d[k])) d[k].filter(p => PID_RE.test(p)).forEach(p => modLists[k].add(p));
+  } catch (e) {}
+}
+function saveMod() {
+  if (isAdmin()) store('ploops-mod', JSON.stringify({ bans: [...modLists.bans], vc: [...modLists.vc] }));
+}
+function vcBlocked(pid) {
+  return net.role === 'host' || net.role === 'solo' ? modLists.vc.has(pid) : vcBanned.has(pid);
+}
 let ragUntil = 0;
 let grabbed = null;
 function isRagged() {
@@ -2957,7 +2981,7 @@ async function enableMic() {
 }
 
 function applyMute() {
-  if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
+  if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = !micMuted && !vcBlocked(playerId); });
 }
 
 function placeSound(node, at) {
@@ -3020,6 +3044,7 @@ function attachCall(call) {
     v.panner.maxDistance = 80;
     const g = ac.createGain();
     g.gain.value = 1.6;
+    v.gain = g;
     v.src.connect(v.panner).connect(g).connect(voiceOut());
   });
   const drop = () => { if (calls.get(id) === v) calls.delete(id); };
@@ -3167,7 +3192,9 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
     return;
   }
 
-  ['me', 'game', 'room', 'sound'].forEach((t, i) => btn(40 + i * 182, 82, 172, 56, t, 'tab:' + t, watchTab === t));
+  const tabs = isAdmin() ? ['me', 'game', 'room', 'sound', 'mod'] : ['me', 'game', 'room', 'sound'];
+  if (watchTab === 'mod' && !isAdmin()) watchTab = 'me';
+  tabs.forEach((t, i) => isAdmin() ? btn(40 + i * 148, 82, 138, 56, t, 'tab:' + t, watchTab === t) : btn(40 + i * 182, 82, 172, 56, t, 'tab:' + t, watchTab === t));
 
   if (watchTab === 'me') {
     x.fillStyle = you.css;
@@ -3189,6 +3216,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
     text(you.name, 195, 218, 42, '#fff', 'left', 700);
     text(`${you.kills} splats · ${you.kos || 0} KOs`, 195, 266, 26, 'rgba(255,255,255,.7)');
     text('player ID  ' + playerId, 40, 490, 30, '#ffde59', 'left', 700);
+    if (isAdmin()) text('admin', 760, 490, 30, '#5fe0c8', 'right', 700);
     btn(560, 190, 200, 64, 'rename', 'edit');
     text('color', 40, 330, 26, 'rgba(255,255,255,.7)');
     PALETTE.forEach((c, i) => {
@@ -3204,6 +3232,18 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
       }
       watchButtons.push({ x: cx - 42, y: cy - 42, w: 84, h: 84, act: 'color:' + i });
     });
+  } else if (watchTab === 'mod' && isAdmin()) {
+    const list = [...remotes.values()].slice(0, 5);
+    if (!list.length) text('nobody else is in this room', 40, 200, 28, 'rgba(255,255,255,.75)');
+    list.forEach((r, i) => {
+      const y = 156 + i * 58;
+      text(r.name.slice(0, 9), 40, y + 26, 28, '#fff', 'left', 700);
+      text(r.pid ? r.pid.slice(3) : 'no id', 230, y + 26, 20, 'rgba(255,255,255,.6)');
+      btn(400, y, 100, 50, 'kick', 'mod:kick:' + r.id, false, '#6b2a24');
+      btn(510, y, 100, 50, 'ban', 'mod:ban:' + r.id, false, '#6b2a24');
+      btn(620, y, 140, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
+    });
+    btn(40, 452, 260, 52, 'clear bans', 'mod:clear');
   } else if (watchTab === 'game') {
     text('mode', 40, 170, 26, 'rgba(255,255,255,.7)');
     btn(40, 190, 350, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
@@ -3227,7 +3267,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
     btn(40, 362, 350, 64, 'type a room', 'typeroom');
     btn(410, 362, 350, 64, onlineBox.checked ? 'online: on' : 'online: off', 'online', onlineBox.checked);
   } else {
-    const mic = !voiceBox.checked ? 'voice chat: off' : !micStream ? 'mic: waiting' : micMuted ? 'mic: muted' : 'mic: on';
+    const mic = vcBlocked(playerId) ? 'voice banned' : !voiceBox.checked ? 'voice chat: off' : !micStream ? 'mic: waiting' : micMuted ? 'mic: muted' : 'mic: on';
     btn(40, 160, 350, 72, mic, 'mic', voiceBox.checked && micStream && !micMuted, !voiceBox.checked || micMuted ? '#6b2a24' : null);
     text(`hearing ${[...calls.values()].filter(v => v.src).length} people`, 420, 196, 26, 'rgba(255,255,255,.75)');
     text('voices', 40, 268, 26, 'rgba(255,255,255,.7)');
@@ -3304,6 +3344,10 @@ function watchAct(act) {
   } else if (act.startsWith('mode:')) requestMode(act.slice(5));
   else if (act.startsWith('weapon:')) setWeapon(act.slice(7));
   else if (act === 'respawn') respawn();
+  else if (act.startsWith('mod:')) {
+    const [, a, id] = act.split(':');
+    modAct(a, id);
+  }
   else if (act === 'mic') {
     if (!voiceBox.checked) {
       voiceBox.checked = true;
@@ -3539,6 +3583,7 @@ function updateRemotes(dt) {
     r.av.mat.color.set(r.it ? IT_RED : r.css);
     const v = calls.get(r.id);
     if (v && v.panner) placeSound(v.panner, r.head);
+    if (v && v.gain) v.gain.gain.value = vcBlocked(r.pid) ? 0 : 1.6;
   }
 }
 
@@ -3575,9 +3620,69 @@ function snapshot() {
     u.push({ i: r.id, n: r.name, c: r.css, h: ra(r.target), y: r3(r.yaw), l: ra(r.handT[0]), r: ra(r.handT[1]), f: r3(r.feet), g: r.tags, k: r.kills, o: r.kos || 0, rg: r.rag ? 1 : 0, pid: r.pid });
   }
   return {
-    t: 's', it: itKey(), u, md: gameMode,
+    t: 's', it: itKey(), u, md: gameMode, vb: [...modLists.vc],
     b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags, (b.arms[0] ? 1 : 0) | (b.arms[1] ? 2 : 0)])
   };
+}
+
+function kickPeer(id, ban) {
+  const c = net.conns.get(id);
+  const r = remotes.get(id);
+  if (r && r.pid && !ban) tempKicks.set(r.pid, performance.now() + 60000);
+  if (c && c.open) {
+    try { c.send({ t: 'kicked', ban: !!ban }); } catch (e) {}
+    setTimeout(() => { try { c.close(); } catch (e) {} }, 400);
+  }
+  net.conns.delete(id);
+  removeRemote(id);
+}
+
+function hostMod(m) {
+  if (m.a === 'sync') {
+    for (const k of ['bans', 'vc']) {
+      const list = m.l && m.l[k];
+      if (Array.isArray(list)) list.slice(0, 200).forEach(p => { if (typeof p === 'string' && PID_RE.test(p) && !ADMINS.includes(p)) modLists[k].add(p); });
+    }
+    return;
+  }
+  if (m.a === 'clear') {
+    modLists.bans.clear();
+    modLists.vc.clear();
+    applyMute();
+    return;
+  }
+  const t = remotes.get(m.to);
+  if (!t || !t.pid || ADMINS.includes(t.pid)) return;
+  if (m.a === 'vc') {
+    flip(modLists.vc, t.pid);
+    applyMute();
+  } else if (m.a === 'kick') kickPeer(t.id, false);
+  else if (m.a === 'ban') {
+    modLists.bans.add(t.pid);
+    kickPeer(t.id, true);
+  }
+}
+
+function modAct(a, id) {
+  if (!isAdmin()) return;
+  const t = id ? remotes.get(id) : null;
+  if (a !== 'clear' && (!t || !t.pid || ADMINS.includes(t.pid))) return;
+  if (net.role === 'client') {
+    if (a === 'ban') modLists.bans.add(t.pid);
+    else if (a === 'vc') flip(modLists.vc, t.pid);
+    else if (a === 'clear') {
+      modLists.bans.clear();
+      modLists.vc.clear();
+    }
+    saveMod();
+    if (net.host && net.host.open) {
+      try { net.host.send({ t: 'mod', a, to: id }); } catch (e) {}
+    }
+  } else {
+    hostMod({ a, to: id });
+    saveMod();
+  }
+  refreshModBox();
 }
 
 function hostReceive(id, m) {
@@ -3586,6 +3691,10 @@ function hostReceive(id, m) {
   if (m.t === 'p') {
     if (!r) r = addRemote(id, cleanName(m.n) || 'Ploop', safeColor(m.c));
     applyPose(r, m);
+    if (r.pid && (modLists.bans.has(r.pid) || (tempKicks.get(r.pid) || 0) > performance.now())) {
+      kickPeer(id, modLists.bans.has(r.pid));
+      return;
+    }
     if (Array.isArray(m.hd)) {
       const until = performance.now() + 400;
       for (const e of m.hd) {
@@ -3603,6 +3712,8 @@ function hostReceive(id, m) {
     if (b.fly.length() > 16) b.fly.setLength(16);
     b.thrower = r;
     b.thrownAt = performance.now();
+  } else if (m.t === 'mod' && r && ADMINS.includes(r.pid) && typeof m.a === 'string') {
+    hostMod(m);
   } else if (m.t === 'arm' && r && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
     const msg = { t: 'arm', i: m.i, s: m.s };
@@ -3676,6 +3787,10 @@ function clientReceive(m) {
   if (!m || typeof m !== 'object') return;
   if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
     if (m.md) setMode(m.md);
+    if (Array.isArray(m.vb)) {
+      vcBanned = new Set(m.vb.filter(p => typeof p === 'string'));
+      applyMute();
+    }
     net.lastSnap = performance.now();
     m.b.forEach((s, i) => {
       const b = bots[i];
@@ -3717,6 +3832,12 @@ function clientReceive(m) {
     }
     for (const id of [...remotes.keys()]) if (!seen.has(id)) removeRemote(id);
     applyIt(m.it);
+  } else if (m.t === 'kicked') {
+    blockedRooms.set(net.room, m.ban ? Infinity : performance.now() + 120000);
+    const room = net.room;
+    onlineBox.checked = false;
+    applyMenu();
+    netline.textContent = m.ban ? `you are banned from room "${room}"` : `you were kicked from room "${room}"`;
   } else if (m.t === 'arm' && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
   } else if (m.t === 'grab' && okVec(m.p) && typeof m.by === 'string') {
@@ -3792,6 +3913,11 @@ function goOnline(room) {
     return;
   }
   if (net.peer && net.room === room) return;
+  if ((blockedRooms.get(room) || 0) > performance.now()) {
+    onlineBox.checked = false;
+    netline.textContent = `you can't join room "${room}" right now`;
+    return;
+  }
   goOffline();
   net.room = room;
   netline.textContent = 'connecting…';
@@ -3850,6 +3976,7 @@ function joinRoom(hostId, room) {
       if (net.peer !== p) return;
       net.role = 'client';
       net.host = c;
+      net.synced = false;
       net.lastSnap = performance.now();
       netline.textContent = `online · room "${room}"`;
     });
@@ -3873,6 +4000,10 @@ function netTick() {
       return;
     }
     try { net.host.send(myPose()); } catch (e) {}
+    if (isAdmin() && !net.synced && now - net.lastSnap < 1500) {
+      net.synced = true;
+      try { net.host.send({ t: 'mod', a: 'sync', l: { bans: [...modLists.bans], vc: [...modLists.vc] } }); } catch (e) {}
+    }
   }
   if (net.role !== 'solo') {
     const count = remotes.size + 1;
@@ -3881,8 +4012,46 @@ function netTick() {
 }
 setInterval(netTick, 66);
 const idLine = document.getElementById('idline');
+const modBox = document.getElementById('modbox');
+const modList = document.getElementById('modlist');
+let modKey = '';
+function refreshModBox() {
+  const show = isAdmin();
+  modBox.style.display = show ? 'block' : 'none';
+  if (!show) return;
+  const rows = [...remotes.values()].map(r => [r.id, r.name, r.pid || '', vcBlocked(r.pid)]);
+  const key = JSON.stringify(rows);
+  if (key === modKey) return;
+  modKey = key;
+  modList.textContent = '';
+  if (!rows.length) modList.textContent = 'nobody else is in this room';
+  for (const [id, name, pid, vc] of rows) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center;margin:6px 0;font-size:14px';
+    const label = document.createElement('span');
+    label.textContent = `${name} ${pid.slice(3)}`;
+    row.append(label);
+    for (const [a, text] of [['kick', 'kick'], ['ban', 'ban'], ['vc', vc ? 'unmute' : 'vc ban']]) {
+      const b = document.createElement('button');
+      b.className = 'alt';
+      b.textContent = text;
+      b.style.cssText = 'padding:4px 10px;font-size:13px';
+      b.addEventListener('click', () => modAct(a, id));
+      row.append(b);
+    }
+    modList.append(row);
+  }
+  const clear = document.createElement('button');
+  clear.className = 'alt';
+  clear.textContent = 'clear bans';
+  clear.style.cssText = 'padding:4px 10px;font-size:13px;margin-top:6px';
+  clear.addEventListener('click', () => modAct('clear'));
+  modList.append(clear);
+}
 idLine.textContent = 'your player ID: ' + playerId + ' (checking…)';
 findPlayerId();
+loadMod();
+setInterval(refreshModBox, 1000);
 
 let resumeRoom = '';
 document.addEventListener('visibilitychange', () => {
