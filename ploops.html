@@ -814,6 +814,7 @@ function isPlaying() {
   return renderer.xr.isPresenting || (mode === 'flat' && menu.classList.contains('hide'));
 }
 
+const scareV = new V();
 function updateBots(dt, playing) {
   const it = players.find(p => p.it);
   const itPos = !it ? youV.set(9999, 0, 9999) : it.bot ? it.pos : humanFlat(it, youV);
