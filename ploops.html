@@ -62,7 +62,18 @@ button:disabled{opacity:.45;cursor:default}
     <li><b>Arms</b> — hold a Ploop in one hand, grip one of its paws with the other and pull to rip the arm off. Desktop: hold a Ploop and press T.</li>
     <li><b>Brawl</b> — switch modes on the watch. Everyone goes to the boxing ring: punch people hard enough to knock them out of the ring. Desktop: tick brawl mode in this menu or press M, then click to punch. Grip someone with your hand (E on desktop) to pick them up, then let go to throw them off the edge. Hits make people ragdoll.</li>
   </ul>
-  <div id="modbox" style="display:none"><b>moderation</b><div id="modlist"></div></div>
+  <div id="modbox" style="display:none"><b>moderation</b>
+    <div style="display:flex;gap:6px;justify-content:center;margin:8px 0">
+      <select id="moddur"><option value="10">10 minutes</option><option value="60" selected>1 hour</option><option value="1440">1 day</option><option value="10080">7 days</option><option value="0">permanent</option></select>
+      <input id="modreason" placeholder="reason" maxlength="40">
+    </div>
+    <div id="modlist"></div></div>
+  <div id="banned" style="display:none;position:fixed;inset:0;z-index:99;background:#3a0d0d;color:#fff;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center">
+    <h1 style="font-size:88px;margin:0;color:#ff5a4d">BANNED</h1>
+    <p>you are banned from Ploops</p>
+    <p id="banreason" style="color:#ffde59;font-weight:700"></p>
+    <p id="bantime"></p>
+  </div>
   <p id="idline">your player ID: …</p>
   <p id="netline">offline</p>
   <p id="note"></p>
@@ -785,25 +796,80 @@ async function findPlayerId() {
 const knock = new V();
 const ADMINS = ['PL-645C0540'];
 const isAdmin = () => ADMINS.includes(playerId);
-const modLists = { bans: new Set(), vc: new Set() };
+const modLists = { bans: new Map(), vc: new Map() };
 const tempKicks = new Map();
 const blockedRooms = new Map();
-let vcBanned = new Set();
+let vcBanned = new Map();
+let banInfo = null;
 const PID_RE = /^PL-[0-9A-F]{8}$/;
-const flip = (set, p) => { if (set.has(p)) set.delete(p); else set.add(p); };
+function cleanReason(r) {
+  return typeof r === 'string' ? r.replace(/[^\w .,!?'-]/g, '').slice(0, 40).trim() : '';
+}
+function newEntry(r, d) {
+  const mins = Number.isFinite(d) && d > 0 ? Math.min(d, 525600) : 0;
+  return { r: cleanReason(r) || 'no reason given', u: mins ? Date.now() + mins * 60000 : 0 };
+}
+function liveEntry(map, pid) {
+  const e = pid && map.get(pid);
+  if (!e) return null;
+  if (e.u && e.u < Date.now()) {
+    map.delete(pid);
+    return null;
+  }
+  return e;
+}
+function timeLeft(u) {
+  if (!u) return 'permanent';
+  let m = Math.max(1, Math.ceil((u - Date.now()) / 60000));
+  const d = Math.floor(m / 1440);
+  m -= d * 1440;
+  const h = Math.floor(m / 60);
+  m -= h * 60;
+  return d ? `${d}d ${h}h left` : h ? `${h}h ${m}m left` : `${m}m left`;
+}
 function loadMod() {
   if (!isAdmin()) return;
   try {
     const d = JSON.parse(stored('ploops-mod') || '{}');
-    for (const k of ['bans', 'vc']) if (Array.isArray(d[k])) d[k].filter(p => PID_RE.test(p)).forEach(p => modLists[k].add(p));
+    for (const k of ['bans', 'vc']) {
+      if (!Array.isArray(d[k])) continue;
+      for (const [p, e] of d[k]) if (PID_RE.test(p) && e && typeof e.u === 'number') modLists[k].set(p, { r: cleanReason(e.r) || 'no reason given', u: e.u });
+    }
   } catch (e) {}
 }
 function saveMod() {
-  if (isAdmin()) store('ploops-mod', JSON.stringify({ bans: [...modLists.bans], vc: [...modLists.vc] }));
+  if (!isAdmin()) return;
+  const out = {};
+  for (const k of ['bans', 'vc']) out[k] = [...modLists[k].keys()].filter(p => liveEntry(modLists[k], p)).map(p => [p, modLists[k].get(p)]);
+  store('ploops-mod', JSON.stringify(out));
+}
+function vcInfo(pid) {
+  return liveEntry(net.role === 'client' ? vcBanned : modLists.vc, pid);
 }
 function vcBlocked(pid) {
-  return net.role === 'host' || net.role === 'solo' ? modLists.vc.has(pid) : vcBanned.has(pid);
+  return !!vcInfo(pid);
 }
+function vcList() {
+  return [...modLists.vc.keys()].filter(p => liveEntry(modLists.vc, p)).map(p => [p, modLists.vc.get(p).r, modLists.vc.get(p).u]);
+}
+function isBanned() {
+  if (!banInfo) return false;
+  if (banInfo.u && banInfo.u < Date.now()) {
+    banInfo = null;
+    store('ploops-ban', '');
+    return false;
+  }
+  return true;
+}
+function setBan(e) {
+  banInfo = e;
+  store('ploops-ban', JSON.stringify(e));
+}
+try {
+  const saved = JSON.parse(stored('ploops-ban') || 'null');
+  if (saved && typeof saved.u === 'number') banInfo = { r: cleanReason(saved.r) || 'no reason given', u: saved.u };
+} catch (e) {}
+let modDlg = null;
 let ragUntil = 0;
 let grabbed = null;
 function isRagged() {
@@ -918,7 +984,7 @@ function vrMove(dt, now) {
     const pull = left.src.gamepad.buttons[0];
     sprint = !!(pull && pull.value > 0.5) && !left.hold && !left.half;
   }
-  if (Math.hypot(mx, my) < 0.15 || isRagged()) {
+  if (Math.hypot(mx, my) < 0.15 || isRagged() || isBanned()) {
     mx = 0;
     my = 0;
     sprint = false;
@@ -935,7 +1001,7 @@ function vrMove(dt, now) {
   vel.z = moveSum.z + knock.z;
   knock.multiplyScalar(Math.exp(-knockDecay() * dt));
   const a = !!(right && right.src.gamepad.buttons[4] && right.src.gamepad.buttons[4].pressed);
-  if (a && !jumpWas && grounded && !watchOpen && !isRagged()) vel.y = 5.2;
+  if (a && !jumpWas && grounded && !watchOpen && !isRagged() && !isBanned()) vel.y = 5.2;
   jumpWas = a;
   vel.y -= 9.8 * dt;
   rig.position.addScaledVector(vel, dt);
@@ -971,7 +1037,7 @@ function flatMove(dt) {
   const active = mode === 'flat' && menu.classList.contains('hide');
   const fw = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  const live = active && !isRagged();
+  const live = active && !isRagged() && !isBanned();
   tA.set(live ? st : 0, 0, live ? -fw : 0);
   if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2).applyAxisAngle(UP, yaw);
   vel.x = tA.x + knock.x;
@@ -3174,8 +3240,18 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
   x.fill();
   text(gameMode === 'brawl' ? 'brawl' : 'ploops', w - 175, 44, 24, 'rgba(255,255,255,.6)', 'right');
 
+  if (isBanned()) {
+    x.fillStyle = '#3a0d0d';
+    x.fillRect(0, 0, w, h);
+    text('BANNED', w / 2, 200, 120, '#ff5a4d', 'center', 700);
+    text('you are banned from Ploops', w / 2, 275, 36, '#fff', 'center');
+    text('reason: ' + banInfo.r, w / 2, 345, 36, '#ffde59', 'center', 700);
+    text(timeLeft(banInfo.u), w / 2, 405, 32, 'rgba(255,255,255,.85)', 'center');
+    text('issued by a moderator', w / 2, 500, 24, 'rgba(255,255,255,.5)', 'center');
+    return;
+  }
   if (typing) {
-    text(typing === 'name' ? 'type your name' : 'type a room code', 40, 100, 26, 'rgba(255,255,255,.7)');
+    text(typing === 'name' ? 'type your name' : typing === 'room' ? 'type a room code' : 'type a reason', 40, 100, 26, 'rgba(255,255,255,.7)');
     x.fillStyle = '#fff';
     roundRect(x, 40, 120, 720, 66, 16);
     x.fill();
@@ -3186,7 +3262,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
       [...row].forEach((ch, i) => btn(start + i * 72, 200 + r * 64, 66, 56, ch, 'key:' + ch));
     });
     btn(40, 470, 150, 64, 'del', 'del');
-    if (typing === 'name') btn(200, 470, 200, 64, 'space', 'key: ');
+    if (typing !== 'room') btn(200, 470, 200, 64, 'space', 'key: ');
     btn(410, 470, 160, 64, 'cancel', 'cancel', false, '#6b2a24');
     btn(580, 470, 180, 64, 'done', 'done', true);
     return;
@@ -3233,17 +3309,30 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
       watchButtons.push({ x: cx - 42, y: cy - 42, w: 84, h: 84, act: 'color:' + i });
     });
   } else if (watchTab === 'mod' && isAdmin()) {
-    const list = [...remotes.values()].slice(0, 5);
-    if (!list.length) text('nobody else is in this room', 40, 200, 28, 'rgba(255,255,255,.75)');
-    list.forEach((r, i) => {
-      const y = 156 + i * 58;
-      text(r.name.slice(0, 9), 40, y + 26, 28, '#fff', 'left', 700);
-      text(r.pid ? r.pid.slice(3) : 'no id', 230, y + 26, 20, 'rgba(255,255,255,.6)');
-      btn(400, y, 100, 50, 'kick', 'mod:kick:' + r.id, false, '#6b2a24');
-      btn(510, y, 100, 50, 'ban', 'mod:ban:' + r.id, false, '#6b2a24');
-      btn(620, y, 140, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
-    });
-    btn(40, 452, 260, 52, 'clear bans', 'mod:clear');
+    if (modDlg) {
+      text(`${modDlg.a === 'ban' ? 'ban' : 'voice ban'} ${modDlg.name}`, 40, 178, 34, '#fff', 'left', 700);
+      text('how long', 40, 216, 22, 'rgba(255,255,255,.7)');
+      [[10, '10m'], [60, '1h'], [1440, '1d'], [10080, '7d'], [0, 'perm']].forEach(([d, l], i) => btn(40 + i * 148, 226, 138, 52, l, 'dlg:dur:' + d, modDlg.d === d));
+      text('reason', 40, 312, 22, 'rgba(255,255,255,.7)');
+      const presets = ['cheating', 'harassing', 'toxic', 'spamming'];
+      presets.forEach((l, i) => btn(40 + i * 182, 322, 172, 52, l, 'dlg:rs:' + l, modDlg.r === l));
+      const custom = !presets.includes(modDlg.r);
+      btn(40, 384, 350, 52, custom ? modDlg.r.slice(0, 20) : 'type a reason', 'dlg:custom', custom);
+      btn(410, 384, 170, 52, 'cancel', 'dlg:cancel', false, '#3a4a46');
+      btn(590, 384, 170, 52, modDlg.a === 'ban' ? 'BAN' : 'VC BAN', 'dlg:ok', false, '#6b2a24');
+    } else {
+      const list = [...remotes.values()].slice(0, 5);
+      if (!list.length) text('nobody else is in this room', 40, 200, 28, 'rgba(255,255,255,.75)');
+      list.forEach((r, i) => {
+        const y = 156 + i * 58;
+        text(r.name.slice(0, 9), 40, y + 26, 28, '#fff', 'left', 700);
+        text(r.pid ? r.pid.slice(3) : 'no id', 230, y + 26, 20, 'rgba(255,255,255,.6)');
+        btn(400, y, 100, 50, 'kick', 'mod:kick:' + r.id, false, '#6b2a24');
+        btn(510, y, 100, 50, 'ban', 'mod:ban:' + r.id, false, '#6b2a24');
+        btn(620, y, 140, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
+      });
+      btn(40, 452, 260, 52, 'clear bans', 'mod:clear');
+    }
   } else if (watchTab === 'game') {
     text('mode', 40, 170, 26, 'rgba(255,255,255,.7)');
     btn(40, 190, 350, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
@@ -3269,7 +3358,11 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
   } else {
     const mic = vcBlocked(playerId) ? 'voice banned' : !voiceBox.checked ? 'voice chat: off' : !micStream ? 'mic: waiting' : micMuted ? 'mic: muted' : 'mic: on';
     btn(40, 160, 350, 72, mic, 'mic', voiceBox.checked && micStream && !micMuted, !voiceBox.checked || micMuted ? '#6b2a24' : null);
-    text(`hearing ${[...calls.values()].filter(v => v.src).length} people`, 420, 196, 26, 'rgba(255,255,255,.75)');
+    const myVc = vcInfo(playerId);
+    if (myVc) {
+      text('reason: ' + myVc.r, 420, 188, 22, '#ffde59', 'left', 700);
+      text(timeLeft(myVc.u), 420, 218, 22, 'rgba(255,255,255,.75)');
+    } else text(`hearing ${[...calls.values()].filter(v => v.src).length} people`, 420, 196, 26, 'rgba(255,255,255,.75)');
     text('voices', 40, 268, 26, 'rgba(255,255,255,.7)');
     meter(40, 285, voiceVol, 'vvol');
     text('effects', 40, 372, 26, 'rgba(255,255,255,.7)');
@@ -3314,6 +3407,7 @@ function openWatch() {
 }
 
 function closeWatch() {
+  if (isBanned()) return;
   watchOpen = false;
   watchPanel.visible = false;
   blip(620, 0.08, 'sine', 0.1, 0.7);
@@ -3330,12 +3424,14 @@ function watchAct(act) {
     draft = '';
   } else if (act.startsWith('key:')) {
     const ch = typing === 'room' ? act.slice(4).toLowerCase() : act.slice(4);
-    draft = (draft + ch).slice(0, typing === 'room' ? 16 : 14);
+    draft = (draft + ch).slice(0, typing === 'room' ? 16 : typing === 'reason' ? 30 : 14);
   } else if (act === 'del') draft = draft.slice(0, -1);
   else if (act === 'cancel') typing = null;
   else if (act === 'done') {
     if (typing === 'name') setName(draft);
-    else joinRoomName(draft);
+    else if (typing === 'reason') {
+      if (modDlg && draft.trim()) modDlg.r = draft.trim().toLowerCase();
+    } else joinRoomName(draft);
     typing = null;
   } else if (act.startsWith('room:')) joinRoomName(act.slice(5));
   else if (act === 'online') {
@@ -3346,7 +3442,23 @@ function watchAct(act) {
   else if (act === 'respawn') respawn();
   else if (act.startsWith('mod:')) {
     const [, a, id] = act.split(':');
-    modAct(a, id);
+    const t = remotes.get(id);
+    if (a === 'ban' || (a === 'vc' && t && !vcBlocked(t.pid))) {
+      if (t) modDlg = { a, id, name: t.name.slice(0, 12), d: 60, r: 'cheating' };
+    } else modAct(a, id);
+  } else if (act.startsWith('dlg:')) {
+    const [, k, v] = act.split(':');
+    if (!modDlg) return;
+    if (k === 'dur') modDlg.d = +v;
+    else if (k === 'rs') modDlg.r = v;
+    else if (k === 'custom') {
+      typing = 'reason';
+      draft = '';
+    } else if (k === 'cancel') modDlg = null;
+    else if (k === 'ok') {
+      modAct(modDlg.a, modDlg.id, modDlg.r, modDlg.d);
+      modDlg = null;
+    }
   }
   else if (act === 'mic') {
     if (!voiceBox.checked) {
@@ -3620,7 +3732,7 @@ function snapshot() {
     u.push({ i: r.id, n: r.name, c: r.css, h: ra(r.target), y: r3(r.yaw), l: ra(r.handT[0]), r: ra(r.handT[1]), f: r3(r.feet), g: r.tags, k: r.kills, o: r.kos || 0, rg: r.rag ? 1 : 0, pid: r.pid });
   }
   return {
-    t: 's', it: itKey(), u, md: gameMode, vb: [...modLists.vc],
+    t: 's', it: itKey(), u, md: gameMode, vb: vcList(),
     b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags, (b.arms[0] ? 1 : 0) | (b.arms[1] ? 2 : 0)])
   };
 }
@@ -3630,7 +3742,7 @@ function kickPeer(id, ban) {
   const r = remotes.get(id);
   if (r && r.pid && !ban) tempKicks.set(r.pid, performance.now() + 60000);
   if (c && c.open) {
-    try { c.send({ t: 'kicked', ban: !!ban }); } catch (e) {}
+    try { c.send(ban ? { t: 'kicked', ban: true, r: ban.r, u: ban.u } : { t: 'kicked', ban: false }); } catch (e) {}
     setTimeout(() => { try { c.close(); } catch (e) {} }, 400);
   }
   net.conns.delete(id);
@@ -3641,7 +3753,12 @@ function hostMod(m) {
   if (m.a === 'sync') {
     for (const k of ['bans', 'vc']) {
       const list = m.l && m.l[k];
-      if (Array.isArray(list)) list.slice(0, 200).forEach(p => { if (typeof p === 'string' && PID_RE.test(p) && !ADMINS.includes(p)) modLists[k].add(p); });
+      if (!Array.isArray(list)) continue;
+      for (const e of list.slice(0, 200)) {
+        if (Array.isArray(e) && typeof e[0] === 'string' && PID_RE.test(e[0]) && !ADMINS.includes(e[0]) && e[1] && typeof e[1].u === 'number') {
+          modLists[k].set(e[0], { r: cleanReason(e[1].r) || 'no reason given', u: e[1].u });
+        }
+      }
     }
     return;
   }
@@ -3654,32 +3771,36 @@ function hostMod(m) {
   const t = remotes.get(m.to);
   if (!t || !t.pid || ADMINS.includes(t.pid)) return;
   if (m.a === 'vc') {
-    flip(modLists.vc, t.pid);
+    if (liveEntry(modLists.vc, t.pid)) modLists.vc.delete(t.pid);
+    else modLists.vc.set(t.pid, newEntry(m.r, m.d));
     applyMute();
-  } else if (m.a === 'kick') kickPeer(t.id, false);
+  } else if (m.a === 'kick') kickPeer(t.id, null);
   else if (m.a === 'ban') {
-    modLists.bans.add(t.pid);
-    kickPeer(t.id, true);
+    const e = newEntry(m.r, m.d);
+    modLists.bans.set(t.pid, e);
+    kickPeer(t.id, e);
   }
 }
 
-function modAct(a, id) {
+function modAct(a, id, reason, mins) {
   if (!isAdmin()) return;
   const t = id ? remotes.get(id) : null;
   if (a !== 'clear' && (!t || !t.pid || ADMINS.includes(t.pid))) return;
   if (net.role === 'client') {
-    if (a === 'ban') modLists.bans.add(t.pid);
-    else if (a === 'vc') flip(modLists.vc, t.pid);
-    else if (a === 'clear') {
+    if (a === 'ban') modLists.bans.set(t.pid, newEntry(reason, mins));
+    else if (a === 'vc') {
+      if (liveEntry(modLists.vc, t.pid)) modLists.vc.delete(t.pid);
+      else modLists.vc.set(t.pid, newEntry(reason, mins));
+    } else if (a === 'clear') {
       modLists.bans.clear();
       modLists.vc.clear();
     }
     saveMod();
     if (net.host && net.host.open) {
-      try { net.host.send({ t: 'mod', a, to: id }); } catch (e) {}
+      try { net.host.send({ t: 'mod', a, to: id, r: reason, d: mins }); } catch (e) {}
     }
   } else {
-    hostMod({ a, to: id });
+    hostMod({ a, to: id, r: reason, d: mins });
     saveMod();
   }
   refreshModBox();
@@ -3691,8 +3812,9 @@ function hostReceive(id, m) {
   if (m.t === 'p') {
     if (!r) r = addRemote(id, cleanName(m.n) || 'Ploop', safeColor(m.c));
     applyPose(r, m);
-    if (r.pid && (modLists.bans.has(r.pid) || (tempKicks.get(r.pid) || 0) > performance.now())) {
-      kickPeer(id, modLists.bans.has(r.pid));
+    const banned = liveEntry(modLists.bans, r.pid);
+    if (r.pid && (banned || (tempKicks.get(r.pid) || 0) > performance.now())) {
+      kickPeer(id, banned);
       return;
     }
     if (Array.isArray(m.hd)) {
@@ -3788,7 +3910,8 @@ function clientReceive(m) {
   if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
     if (m.md) setMode(m.md);
     if (Array.isArray(m.vb)) {
-      vcBanned = new Set(m.vb.filter(p => typeof p === 'string'));
+      vcBanned = new Map();
+      for (const e of m.vb) if (Array.isArray(e) && typeof e[0] === 'string') vcBanned.set(e[0], { r: cleanReason(e[1]) || 'no reason given', u: +e[2] || 0 });
       applyMute();
     }
     net.lastSnap = performance.now();
@@ -3833,11 +3956,13 @@ function clientReceive(m) {
     for (const id of [...remotes.keys()]) if (!seen.has(id)) removeRemote(id);
     applyIt(m.it);
   } else if (m.t === 'kicked') {
-    blockedRooms.set(net.room, m.ban ? Infinity : performance.now() + 120000);
     const room = net.room;
+    if (m.ban) setBan({ r: cleanReason(m.r) || 'no reason given', u: +m.u || 0 });
+    else blockedRooms.set(room, performance.now() + 120000);
     onlineBox.checked = false;
     applyMenu();
-    netline.textContent = m.ban ? `you are banned from room "${room}"` : `you were kicked from room "${room}"`;
+    netline.textContent = m.ban ? 'you are banned from Ploops' : `you were kicked from room "${room}"`;
+    refreshBan();
   } else if (m.t === 'arm' && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
   } else if (m.t === 'grab' && okVec(m.p) && typeof m.by === 'string') {
@@ -3910,6 +4035,11 @@ function retry(ms) {
 function goOnline(room) {
   if (typeof Peer === 'undefined') {
     netline.textContent = "online play couldn't load";
+    return;
+  }
+  if (isBanned()) {
+    onlineBox.checked = false;
+    netline.textContent = 'you are banned from Ploops';
     return;
   }
   if (net.peer && net.room === room) return;
@@ -4014,6 +4144,19 @@ setInterval(netTick, 66);
 const idLine = document.getElementById('idline');
 const modBox = document.getElementById('modbox');
 const modList = document.getElementById('modlist');
+const modDur = document.getElementById('moddur');
+const modReason = document.getElementById('modreason');
+const banScreen = document.getElementById('banned');
+function refreshBan() {
+  const on = isBanned();
+  banScreen.style.display = on ? 'flex' : 'none';
+  if (!on) return;
+  document.getElementById('banreason').textContent = 'reason: ' + banInfo.r;
+  document.getElementById('bantime').textContent = timeLeft(banInfo.u);
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+setInterval(refreshBan, 1000);
+refreshBan();
 let modKey = '';
 function refreshModBox() {
   const show = isAdmin();
@@ -4036,7 +4179,7 @@ function refreshModBox() {
       b.className = 'alt';
       b.textContent = text;
       b.style.cssText = 'padding:4px 10px;font-size:13px';
-      b.addEventListener('click', () => modAct(a, id));
+      b.addEventListener('click', () => modAct(a, id, modReason.value || 'no reason given', +modDur.value));
       row.append(b);
     }
     modList.append(row);
@@ -4076,21 +4219,25 @@ renderer.setAnimationLoop(() => {
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  const playing = isPlaying();
+  const banned = isBanned();
+  const playing = isPlaying() && !banned;
   if (renderer.xr.isPresenting) vrMove(dt, now);
   else if (mode === 'flat') flatMove(dt);
   else {
     yaw += dt * 0.06;
     camera.rotation.set(-0.08, yaw, 0);
   }
-  weapons(dt);
-  interact(dt, now);
+  if (!banned) {
+    weapons(dt);
+    interact(dt, now);
+  }
   if (net.role === 'client') mirrorBots(dt);
   else {
     updateBots(dt, playing);
   }
   updateRemotes(dt);
   updateWatch();
+  if (banned && renderer.xr.isPresenting && !watchOpen) openWatch();
   updateListener();
   updateChunks(dt);
   updateDrops(dt);
