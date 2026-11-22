@@ -47,6 +47,7 @@ button:disabled{opacity:.45;cursor:default}
     <label><input type="checkbox" id="voice"> voice chat</label>
     <label><input type="checkbox" id="brawlBox"> brawl mode</label>
     <label><input type="checkbox" id="horrorBox"> horror mode</label>
+    <label><input type="checkbox" id="monsterBox"> monster mode</label>
   </div>
   <div class="swatches" id="swatches">
   </div>
@@ -56,7 +57,7 @@ button:disabled{opacity:.45;cursor:default}
   </div>
   <ul class="how">
     <li><b>VR</b> — left stick to walk, hold left trigger to sprint, A to jump, right stick to turn. X opens your watch: name, color, room, mode, weapons and sound.</li>
-    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, M to switch between ploops and brawl, N for horror, E or click to press buttons, Esc to pause.</li>
+    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, M to switch between ploops and brawl, N for horror, K for monster (E grab, T rip arm, Q cheese pull, F rip head off), E or click to press buttons, Esc to pause.</li>
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
     <li><b>Chainsaw</b> — press B in VR to cycle blaster, chainsaw and knives. Rev the chainsaw with the trigger; for knives, squeeze the trigger and let go mid-swing to throw. Desktop: 1 blaster, 2 chainsaw, 3 knives.</li>
@@ -459,6 +460,61 @@ const hxScreenText = (x, w, h, text, color) => {
   hxLed(1, new V(FB.x, 1.45, FB.z - 0.17));
 }
 
+
+const MZ = { n: 25, cs: 4, ox: 300, oz: -300, h: 4.4, spec: 26 };
+MZ.half = MZ.n * MZ.cs / 2;
+MZ.at = (c, r) => new V(MZ.ox - MZ.half + (c + 0.5) * MZ.cs, 0, MZ.oz - MZ.half + (r + 0.5) * MZ.cs);
+{
+  let s = 4242;
+  const mr = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const n = MZ.n;
+  const wallR = Array.from({ length: n }, () => Array(n).fill(true));
+  const wallB = Array.from({ length: n }, () => Array(n).fill(true));
+  const seen = Array.from({ length: n }, () => Array(n).fill(false));
+  const stack = [[0, 0]];
+  seen[0][0] = true;
+  while (stack.length) {
+    const [c, r] = stack[stack.length - 1];
+    const opts = [];
+    if (c + 1 < n && !seen[r][c + 1]) opts.push([c + 1, r, 'r']);
+    if (c > 0 && !seen[r][c - 1]) opts.push([c - 1, r, 'l']);
+    if (r + 1 < n && !seen[r + 1][c]) opts.push([c, r + 1, 'd']);
+    if (r > 0 && !seen[r - 1][c]) opts.push([c, r - 1, 'u']);
+    if (!opts.length) {
+      stack.pop();
+      continue;
+    }
+    const [nc, nr, d] = opts[Math.floor(mr() * opts.length)];
+    if (d === 'r') wallR[r][c] = false;
+    else if (d === 'l') wallR[r][nc] = false;
+    else if (d === 'd') wallB[r][c] = false;
+    else wallB[nr][c] = false;
+    seen[nr][nc] = true;
+    stack.push([nc, nr]);
+  }
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (c < n - 1 && wallR[r][c] && mr() < 0.1) wallR[r][c] = false;
+      if (r < n - 1 && wallB[r][c] && mr() < 0.1) wallB[r][c] = false;
+    }
+  }
+  const W = n * MZ.cs;
+  box(MZ.ox, -0.5, MZ.oz, W, 1, W, 0x1b1a22, 190);
+  const t = 0.5, h = MZ.h;
+  box(MZ.ox, h / 2, MZ.oz - MZ.half, W + t, h, t, 0x2b2433, 150);
+  box(MZ.ox, h / 2, MZ.oz + MZ.half, W + t, h, t, 0x2b2433, 150);
+  box(MZ.ox - MZ.half, h / 2, MZ.oz, t, h, W + t, 0x2b2433, 150);
+  box(MZ.ox + MZ.half, h / 2, MZ.oz, t, h, W + t, 0x2b2433, 150);
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const p = MZ.at(c, r);
+      const col = (c + r) % 2 ? 0x352b40 : 0x2e2639;
+      if (c < n - 1 && wallR[r][c]) box(p.x + MZ.cs / 2, h / 2, p.z, t, h, MZ.cs + t, col, 150);
+      if (r < n - 1 && wallB[r][c]) box(p.x, h / 2, p.z + MZ.cs / 2, MZ.cs + t, h, t, col, 150);
+    }
+  }
+  box(MZ.ox, MZ.spec, MZ.oz, 40, 1, 40, 0x3a3a48, 190);
+}
 
 const dummy = new THREE.Object3D();
 const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -909,7 +965,7 @@ const wristPaint = textCanvas(256, 128, (x, w, h) => {
   x.textAlign = 'center';
   x.textBaseline = 'middle';
   x.font = '700 50px Fredoka, sans-serif';
-  x.fillText(gameMode === 'brawl' ? `${you.kos || 0} KOs` : `${you.kills} splats`, w / 2, 50);
+  x.fillText(gameMode === 'monster' ? mnStatus() : gameMode === 'brawl' ? `${you.kos || 0} KOs` : `${you.kills} splats`, w / 2, 50);
   x.font = '500 28px Fredoka, sans-serif';
   x.fillText(`${gameMode === 'brawl' ? 'fists' : you.weapon === 'saw' ? 'chainsaw' : you.weapon === 'knife' ? 'knives' : 'blaster'} · X menu`, w / 2, 96);
 });
@@ -1107,7 +1163,10 @@ function youPos(out) {
 }
 
 function respawn() {
-  if (gameMode === 'horror') {
+  if (gameMode === 'monster') {
+    const q = mnSpawn();
+    rig.position.set(q.x, q.y + 0.02, q.z);
+  } else if (gameMode === 'horror') {
     const S = HZ[hx.lvl - 1].m.S;
     rig.position.set(S.x + (Math.random() - 0.5) * 3, 0.02, S.z + (Math.random() - 0.5) * 3);
   } else if (gameMode === 'brawl') rig.position.set(RING.x + (Math.random() - 0.5) * 5, RING_TOP + 0.02, RING.z + (Math.random() - 0.5) * 5);
@@ -1121,7 +1180,7 @@ function respawn() {
 
 function body(prevY, dt, holding) {
   if (grabbed) {
-    if (performance.now() > grabbed.until || gameMode !== 'brawl') grabbed = null;
+    if (performance.now() > grabbed.until || (gameMode !== 'brawl' && gameMode !== 'monster')) grabbed = null;
     else {
       headPos(headV);
       tB.subVectors(grabbed.p, headV);
@@ -1192,7 +1251,7 @@ function vrMove(dt, now) {
     const pull = left.src.gamepad.buttons[0];
     sprint = !!(pull && pull.value > 0.5) && !left.hold && !left.half;
   }
-  if (Math.hypot(mx, my) < 0.15 || isRagged() || isBanned()) {
+  if (Math.hypot(mx, my) < 0.15 || isRagged() || isBanned() || mnLocked()) {
     mx = 0;
     my = 0;
     sprint = false;
@@ -1204,12 +1263,12 @@ function vrMove(dt, now) {
   tB.set(-tA.z, 0, tA.x);
   moveSum.set(0, 0, 0).addScaledVector(tA, -my).addScaledVector(tB, mx);
   if (moveSum.length() > 1) moveSum.normalize();
-  moveSum.multiplyScalar(sprint ? 5.2 : 3.2);
+  moveSum.multiplyScalar((sprint ? 5.2 : 3.2) * mnSpeed());
   vel.x = moveSum.x + knock.x;
   vel.z = moveSum.z + knock.z;
   knock.multiplyScalar(Math.exp(-knockDecay() * dt));
   const a = !!(right && right.src.gamepad.buttons[4] && right.src.gamepad.buttons[4].pressed);
-  if (a && !jumpWas && grounded && !watchOpen && !isRagged() && !isBanned()) vel.y = 5.2;
+  if (a && !jumpWas && grounded && !watchOpen && !isRagged() && !isBanned() && !mnLocked()) vel.y = 5.2;
   jumpWas = a;
   vel.y -= 9.8 * dt;
   rig.position.addScaledVector(vel, dt);
@@ -1217,7 +1276,7 @@ function vrMove(dt, now) {
   snapTurn();
   rig.updateMatrixWorld(true);
   for (const h of hands) {
-    const on = !!(h.src && h.grip.visible);
+    const on = !!(h.src && h.grip.visible) && !mnHandGone(h);
     h.mesh.visible = on;
     if (!on) {
       h.touching = false;
@@ -1245,9 +1304,9 @@ function flatMove(dt) {
   const active = mode === 'flat' && menu.classList.contains('hide');
   const fw = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  const live = active && !isRagged() && !isBanned();
+  const live = active && !isRagged() && !isBanned() && !mnLocked();
   tA.set(live ? st : 0, 0, live ? -fw : 0);
-  if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2).applyAxisAngle(UP, yaw);
+  if (tA.lengthSq() > 0) tA.normalize().multiplyScalar(5.2 * mnSpeed()).applyAxisAngle(UP, yaw);
   vel.x = tA.x + knock.x;
   vel.z = tA.z + knock.z;
   knock.multiplyScalar(Math.exp(-knockDecay() * dt));
@@ -1978,6 +2037,10 @@ renderer.domElement.addEventListener('mousedown', e => {
     hxDeskPress();
     return;
   }
+  if (gameMode === 'monster') {
+    if (iAmMonster() && mn.secs <= 172) deskPunch();
+    return;
+  }
   if (gameMode === 'brawl') {
     deskPunch();
     return;
@@ -2378,6 +2441,14 @@ function placeHalf(m, at, fallback) {
 }
 
 function deskKey(code) {
+  if (gameMode === 'monster' && (code === 'KeyE' || code === 'KeyT' || code === 'KeyQ' || code === 'KeyF')) {
+    mnKey(code);
+    return;
+  }
+  if (code === 'KeyK') {
+    requestMode(gameMode === 'monster' ? 'ploops' : 'monster');
+    return;
+  }
   if (code === 'KeyE' && gameMode === 'horror') {
     hxDeskPress();
   } else if (code === 'KeyN') {
@@ -2506,7 +2577,7 @@ function interact(dt, now) {
       curlHand(h.model, h.hold || h.half || h.pg || h.arm ? 0.6 : Math.max(grip, trig * 0.35));
       const down = grip > 0.6;
       if (down && !h.gripWas && !h.hold && !h.half && !h.pg && !h.arm) {
-        if (gameMode === 'brawl') {
+        if (grabMode()) {
           const r = nearHuman(h.vis, 0.65);
           if (r) {
             h.pg = r;
@@ -2532,10 +2603,13 @@ function interact(dt, now) {
       }
       h.gripWas = down;
       if (h.pg) {
-        if (!remotes.has(h.pg.id) || gameMode !== 'brawl') h.pg = null;
-        else if (now - pgSent > 50) {
-          pgSent = now;
-          sendGrab(h.pg, h.vis);
+        if (!remotes.has(h.pg.id) || !grabMode()) h.pg = null;
+        else {
+          if (now - pgSent > 50) {
+            pgSent = now;
+            sendGrab(h.pg, h.vis);
+          }
+          if (gameMode === 'monster' && gp) mnVrActs(h, gp);
         }
       }
       if (h.arm) {
@@ -2552,7 +2626,7 @@ function interact(dt, now) {
     }
   } else if (flatPlay) {
     if (deskPG) {
-      if (!remotes.has(deskPG.id) || gameMode !== 'brawl') deskPG = null;
+      if (!remotes.has(deskPG.id) || !grabMode()) deskPG = null;
       else if (now - pgSent > 50) {
         pgSent = now;
         sendGrab(deskPG, camera.localToWorld(new V(0, -0.15, -0.8)));
@@ -2951,28 +3025,40 @@ function showBanner(text, ms = 1600) {
 }
 
 function setMode(md) {
-  if ((md !== 'ploops' && md !== 'brawl' && md !== 'horror') || md === gameMode) return;
+  if ((md !== 'ploops' && md !== 'brawl' && md !== 'horror' && md !== 'monster') || md === gameMode) return;
   if (gameMode === 'horror') hxLeave();
+  if (gameMode === 'monster') mnLeave();
   gameMode = md;
   brawlBox.checked = md === 'brawl';
   horrorBox.checked = md === 'horror';
+  monsterBox.checked = md === 'monster';
   koUntil = 0;
   lastHit = null;
   if (md === 'horror') hxEnter();
+  else if (md === 'monster') mnEnter();
   else respawn();
-  showBanner(md === 'brawl' ? 'BRAWL!' : md === 'horror' ? 'ESCAPE' : 'PLOOPS');
+  showBanner(md === 'brawl' ? 'BRAWL!' : md === 'horror' ? 'ESCAPE' : md === 'monster' ? 'MONSTER' : 'PLOOPS');
   blip(md === 'brawl' ? 300 : 600, 0.25, 'square', 0.12, 1.5);
   board.redraw();
   wristPaint.redraw();
   watchPaint.redraw();
 }
 
+const monsterBox = document.getElementById('monsterBox');
+monsterBox.addEventListener('change', () => requestMode(monsterBox.checked ? 'monster' : 'ploops'));
 const horrorBox = document.getElementById('horrorBox');
 horrorBox.addEventListener('change', () => requestMode(horrorBox.checked ? 'horror' : 'ploops'));
 const brawlBox = document.getElementById('brawlBox');
 brawlBox.addEventListener('change', () => requestMode(brawlBox.checked ? 'brawl' : 'ploops'));
 
 function requestMode(md) {
+  if (!isAdmin()) {
+    brawlBox.checked = gameMode === 'brawl';
+    horrorBox.checked = gameMode === 'horror';
+    monsterBox.checked = gameMode === 'monster';
+    showBanner('ADMINS ONLY');
+    return;
+  }
   if (net.role === 'client') {
     if (net.host && net.host.open) {
       try { net.host.send({ t: 'mode', md }); } catch (e) {}
@@ -3005,6 +3091,7 @@ function punch(r, v, h) {
 function nearHuman(at, reach) {
   let best = null, bd = reach;
   for (const r of remotes.values()) {
+    if (gameMode === 'monster' && mn.dead.has(r.id)) continue;
     const d = Math.min(at.distanceTo(r.head), at.distanceTo(tagBody.copy(r.head).setY(r.head.y - 0.42)));
     if (d < bd) {
       best = r;
@@ -3029,7 +3116,8 @@ function sendGrab(r, p) {
 }
 
 function applyGrab(p, by) {
-  if (gameMode !== 'brawl') return;
+  if (gameMode !== 'brawl' && gameMode !== 'monster') return;
+  if (gameMode === 'monster' && by !== mn.mid) return;
   grabbed = { p: new V().fromArray(p), until: performance.now() + 350, by };
   ragUntil = Math.max(ragUntil, performance.now() + 500);
   lastHit = { id: by, t: performance.now() };
@@ -3539,18 +3627,17 @@ function hxStopVoice() {
   hxVoice = null;
 }
 
-function hxAudio(dt, now) {
+function hxVoiceTick(d, rate) {
   if (!ac) return;
   if (!hxBuf && !hxLoading) {
     hxLoading = true;
-    fetch('keys.mp3').then(r => r.arrayBuffer()).then(b => ac.decodeAudioData(b, d => { hxBuf = d; })).catch(() => {});
+    fetch('keys.mp3').then(r => r.arrayBuffer()).then(b => ac.decodeAudioData(b, x => { hxBuf = x; })).catch(() => {});
   }
-  const d = camera.getWorldPosition(hxTmp).distanceTo(hxMon.g.position);
   if (hxVoice && d > 24) hxStopVoice();
   if (!hxVoice && hxBuf && d < 18) {
     const src = ac.createBufferSource();
     src.buffer = hxBuf;
-    src.playbackRate.value = hx.lvl === 2 ? 0.55 : 1;
+    src.playbackRate.value = rate;
     const g = ac.createGain();
     src.connect(g);
     g.connect(mainOut());
@@ -3560,6 +3647,10 @@ function hxAudio(dt, now) {
     hxVoice = v;
   }
   if (hxVoice) hxVoice.g.gain.value = clamp(1.3 * (1 - d / 22), 0, 1.3);
+}
+
+function hxAudio(dt, now) {
+  hxVoiceTick(camera.getWorldPosition(hxTmp).distanceTo(hxMon.g.position), hx.lvl === 2 ? 0.55 : 1);
 }
 
 function hxVisual(dt, now) {
@@ -3672,6 +3763,312 @@ function horrorTick(dt, now, playing) {
       }
     }
   }
+}
+
+const mn = { phase: 0, mid: '', round: 0, seen: 0, secs: 180, win: 0, dead: new Set(), arms: new Map(), pick: '', t0: 0, n0: 0, over: 0 };
+const mnFace = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 2.02), new THREE.MeshBasicMaterial({ map: hxMon.face.material.map, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide }));
+mnFace.visible = false;
+scene.add(mnFace);
+const mnTmp = new V();
+const mnMe = () => net.myId || 'me';
+const iAmMonster = () => gameMode === 'monster' && mn.phase === 1 && mn.mid === mnMe();
+const iAmDead = () => gameMode === 'monster' && mn.dead.has(mnMe());
+const myArmsGone = () => {
+  const a = gameMode === 'monster' && mn.arms.get(mnMe());
+  return !!a && !a[0] && !a[1];
+};
+const mnLocked = () => gameMode === 'monster' && (myArmsGone() || (iAmMonster() && mn.secs > 172));
+const mnSpeed = () => iAmMonster() ? 3 : 1;
+const mnHandGone = h => {
+  const a = gameMode === 'monster' && mn.arms.get(mnMe());
+  return !!a && !a[h.src && h.src.handedness === 'left' ? 0 : 1];
+};
+const grabMode = () => gameMode === 'brawl' || (gameMode === 'monster' && iAmMonster());
+
+function mnStatus() {
+  const s = Math.max(0, mn.secs);
+  const t = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  if (mn.phase === 2) return mn.win === 1 ? 'monster wins' : 'survivors win';
+  if (mn.phase !== 1) return 'starting…';
+  if (iAmMonster()) return mn.secs > 172 ? 'get ready…' : `MONSTER ${t}`;
+  if (iAmDead()) return `dead · ${t}`;
+  return `survive ${t}`;
+}
+
+function mnSpawn() {
+  if (iAmDead()) return new V(MZ.ox + (Math.random() - 0.5) * 20, MZ.spec + 0.52, MZ.oz + (Math.random() - 0.5) * 20);
+  if (iAmMonster()) return MZ.at(0, 0);
+  return MZ.at(8 + Math.floor(Math.random() * 9), 8 + Math.floor(Math.random() * 9));
+}
+
+function mnLook() {
+  const col = new THREE.Color(0x120d1a);
+  scene.background = col;
+  scene.fog = new THREE.FogExp2(col, 0.032);
+  hemi.intensity = 0.7;
+  hemi.color.setHex(0xb59cff);
+  hemi.groundColor.setHex(0x2a1a2a);
+  sun.intensity = 0.12;
+  sky.visible = false;
+  hxLight.visible = false;
+}
+
+function mnEnter() {
+  mn.phase = 0;
+  mn.dead.clear();
+  mn.arms.clear();
+  mnLook();
+  respawn();
+}
+
+function mnLeave() {
+  mn.phase = 0;
+  mn.dead.clear();
+  mn.arms.clear();
+  mnFace.visible = false;
+  hxStopVoice();
+  for (const r of remotes.values()) {
+    r.av.g.visible = true;
+    r.av.paws[0].visible = true;
+    r.av.paws[1].visible = true;
+  }
+  for (const d of deskHands) d.root.visible = true;
+  hxUnlook();
+}
+
+function mnTuple() {
+  return [mn.phase, mn.mid, mn.round, Math.max(0, Math.ceil(mn.secs)), mn.win, [...mn.dead], Object.fromEntries(mn.arms)];
+}
+
+function mnNewRound() {
+  showBanner(iAmMonster() ? 'YOU ARE THE MONSTER' : 'RUN! SURVIVE 3:00', 3000);
+  blip(iAmMonster() ? 90 : 500, 0.5, 'sawtooth', 0.2, 0.5);
+  respawn();
+}
+
+function mnDied() {
+  showBanner('YOU WERE KILLED', 3000);
+  buzz(1, 400);
+  respawn();
+}
+
+function mnResult(w) {
+  showBanner(w === 1 ? 'MONSTER WINS' : 'SURVIVORS WIN', 5000);
+  blip(w === 1 ? 110 : 700, 0.6, w === 1 ? 'sawtooth' : 'triangle', 0.2, 0.7);
+}
+
+function mnApply(a) {
+  const me = mnMe();
+  const wasDead = mn.dead.has(me), wasWin = mn.win;
+  mn.phase = a[0] | 0;
+  mn.mid = typeof a[1] === 'string' ? a[1] : '';
+  mn.secs = +a[3] || 0;
+  mn.win = a[4] | 0;
+  mn.dead = new Set((Array.isArray(a[5]) ? a[5] : []).filter(x => typeof x === 'string'));
+  mn.arms = new Map();
+  if (a[6] && typeof a[6] === 'object') {
+    for (const [k, v] of Object.entries(a[6])) if (Array.isArray(v)) mn.arms.set(k, [v[0] ? 1 : 0, v[1] ? 1 : 0]);
+  }
+  if ((a[2] | 0) !== mn.seen) {
+    mn.seen = a[2] | 0;
+    mnNewRound();
+  } else if (!wasDead && mn.dead.has(me)) mnDied();
+  if (mn.win && !wasWin) mnResult(mn.win);
+}
+
+const mnIdOf = h => h === you ? mnMe() : h.id;
+
+function mnStart() {
+  const ids = humansInPlay(true).map(mnIdOf);
+  if (!ids.length) return;
+  mn.mid = ids.includes(mn.pick) ? mn.pick : ids[Math.floor(Math.random() * ids.length)];
+  mn.pick = '';
+  mn.n0 = ids.length - 1;
+  mn.dead.clear();
+  mn.arms.clear();
+  mn.win = 0;
+  mn.round++;
+  mn.seen = mn.round;
+  mn.t0 = performance.now();
+  mn.secs = 180;
+  mn.phase = 1;
+  mnNewRound();
+}
+
+function mnChoose(id) {
+  mn.pick = id || '';
+  if (gameMode === 'monster') mnStart();
+}
+
+function mnEnd(w) {
+  mn.phase = 2;
+  mn.win = w;
+  mn.over = performance.now();
+  mnResult(w);
+}
+
+function mnHeadOf(id) {
+  if (id === mnMe()) return headPos(new V());
+  const r = remotes.get(id);
+  return r ? r.head.clone() : null;
+}
+
+function mnHeadFx(at, css) {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshLambertMaterial({ color: css });
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), skin));
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    eye.position.set(0.08 * s, 0.04, 0.19);
+    g.add(eye);
+  }
+  const bone = new THREE.MeshLambertMaterial({ color: 0xe8e0c8 });
+  for (let i = 0; i < 10; i++) {
+    const v = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.07), bone);
+    v.position.set(0, -0.26 - i * 0.055, -Math.sin(i * 0.35) * 0.04);
+    v.rotation.x = i * 0.06;
+    g.add(v);
+  }
+  const strand = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.6, 6), new THREE.MeshLambertMaterial({ color: 0x7a0a0a }));
+  strand.position.set(0, -0.5, -0.05);
+  g.add(strand);
+  const c = fling(g, at.clone(), new V(), 1, 0.2, new V((Math.random() - 0.5) * 3, 5, (Math.random() - 0.5) * 3));
+  c.bleeds = true;
+  c.life = 22;
+  const stump = at.clone();
+  stump.y -= 0.35;
+  fountain(stump, 3.5);
+  spray(at.clone(), new V(0, 1, 0), 70, 3);
+  scream(at);
+  crunch();
+}
+
+function mnArmFx(at, side) {
+  const g = new THREE.Group();
+  const m = new THREE.MeshLambertMaterial({ color: 0xd9a37a });
+  const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.5, 8), m);
+  const hand = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), m);
+  hand.position.y = -0.28;
+  g.add(limb, hand);
+  const c = fling(g, at.clone(), new V(), 1, 0.1, new V((side ? 1 : -1) * (1 + Math.random() * 2), 3 + Math.random() * 2, (Math.random() - 0.5) * 3));
+  c.bleeds = true;
+  c.life = 18;
+  spray(at.clone(), new V(0, 1, 0), 40, 2);
+  crunch();
+}
+
+function mnKill(to, how, at, css) {
+  if (mn.dead.has(to)) return;
+  mn.dead.add(to);
+  if (how === 'pull') {
+    broadcast({ t: 'cp', p: ra(at), y: r3(Math.random() * 6), c: css });
+    hxStartPull(at.clone(), Math.random() * 6, css);
+  } else {
+    broadcast({ t: 'mhd', p: ra(at), c: css });
+    mnHeadFx(at, css);
+  }
+  if (to === mnMe()) mnDied();
+}
+
+function mnAct(from, a, to) {
+  if (gameMode !== 'monster' || mn.phase !== 1 || from !== mn.mid || to === from || mn.dead.has(to) || mn.secs > 172) return;
+  const mh = mnHeadOf(from), th = mnHeadOf(to);
+  if (!mh || !th || mh.distanceTo(th) > 4.5) return;
+  if (to !== mnMe() && !remotes.has(to)) return;
+  const css = to === mnMe() ? you.css : remotes.get(to).css;
+  if (a === 'arm') {
+    const arms = mn.arms.get(to) || [1, 1];
+    const side = arms[0] ? 0 : arms[1] ? 1 : -1;
+    if (side < 0) return;
+    arms[side] = 0;
+    mn.arms.set(to, arms);
+    broadcast({ t: 'marm', to, s: side, p: ra(th) });
+    mnArmFx(th, side);
+    if (to === mnMe()) {
+      buzz(1, 300);
+      showBanner(arms[0] || arms[1] ? 'ARM RIPPED OFF' : 'NO ARMS LEFT', 2000);
+    }
+  } else if (a === 'pull' || a === 'head') mnKill(to, a, th, css);
+}
+
+function mnSend(a, to) {
+  if (net.role === 'client') {
+    if (net.host && net.host.open) {
+      try { net.host.send({ t: 'mact', a, to }); } catch (e) {}
+    }
+  } else mnAct(mnMe(), a, to);
+}
+
+function mnKey(code) {
+  if (!iAmMonster() || mn.secs > 172) return;
+  if (code === 'KeyE') deskGrabKey();
+  else if (deskPG) {
+    const id = deskPG.id;
+    if (code === 'KeyT') mnSend('arm', id);
+    else if (code === 'KeyQ' || code === 'KeyF') {
+      mnSend(code === 'KeyQ' ? 'pull' : 'head', id);
+      deskPG = null;
+    }
+  }
+}
+
+function mnVrActs(h, gp) {
+  const left = h.src.handedness === 'left';
+  const b4 = !!(gp.buttons[4] && gp.buttons[4].pressed), b5 = !!(gp.buttons[5] && gp.buttons[5].pressed);
+  const w = h.mnBtn || [false, false];
+  const id = h.pg.id;
+  if (b4 && !w[0]) mnSend(left ? 'head' : 'arm', id);
+  if (b5 && !w[1]) mnSend('pull', id);
+  if ((b4 && !w[0] && left) || (b5 && !w[1])) h.pg = null;
+  h.mnBtn = [b4, b5];
+}
+
+function mnHost(now) {
+  const ids = humansInPlay(true).map(mnIdOf);
+  if (mn.phase === 0) {
+    if (ids.length) mnStart();
+  } else if (mn.phase === 1) {
+    mn.secs = 180 - (now - mn.t0) / 1000;
+    const here = i => i === mnMe() || remotes.has(i);
+    if (!here(mn.mid)) {
+      mnStart();
+      return;
+    }
+    const alive = ids.filter(i => i !== mn.mid && !mn.dead.has(i));
+    if (mn.n0 && !alive.length) mnEnd(1);
+    else if (mn.secs <= 0) mnEnd(2);
+  } else if (now - mn.over > 7000) mnStart();
+}
+
+function mnVisuals() {
+  let monster = null;
+  for (const r of remotes.values()) {
+    const arms = mn.arms.get(r.id);
+    const dead = mn.dead.has(r.id);
+    const isM = mn.phase === 1 && r.id === mn.mid;
+    r.av.g.visible = !dead && !isM;
+    r.av.paws[0].visible = !dead && (!arms || !!arms[0]);
+    r.av.paws[1].visible = !dead && (!arms || !!arms[1]);
+    if (isM) monster = r;
+  }
+  if (monster) {
+    mnFace.visible = true;
+    mnFace.position.set(monster.head.x, monster.feet + 1.05, monster.head.z);
+    camera.getWorldPosition(mnTmp);
+    mnFace.rotation.y = Math.atan2(mnTmp.x - monster.head.x, mnTmp.z - monster.head.z);
+  } else mnFace.visible = false;
+  const mine = mn.arms.get(mnMe());
+  deskHands.forEach((d, i) => { d.root.visible = !(mine && !mine[i]); });
+}
+
+function monsterTick(dt, now, playing) {
+  if (gameMode !== 'monster') return;
+  if (net.role !== 'client') mnHost(now);
+  mnVisuals();
+  const mr = remotes.get(mn.mid);
+  if (mr && mn.phase === 1 && !iAmMonster() && !iAmDead()) hxVoiceTick(camera.getWorldPosition(mnTmp).distanceTo(mr.head), 1);
+  else hxStopVoice();
+  if (rig.position.y < -20) respawn();
 }
 
 const menu = document.getElementById('menu');
@@ -4130,21 +4527,29 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
         const y = 156 + i * 58;
         text(r.name.slice(0, 9), 40, y + 26, 28, '#fff', 'left', 700);
         text(r.pid ? r.pid.slice(3) : 'no id', 230, y + 26, 20, 'rgba(255,255,255,.6)');
-        btn(400, y, 100, 50, 'kick', 'mod:kick:' + r.id, false, '#6b2a24');
-        btn(510, y, 100, 50, 'ban', 'mod:ban:' + r.id, false, '#6b2a24');
-        btn(620, y, 140, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
+        btn(330, y, 85, 50, 'kick', 'mod:kick:' + r.id, false, '#6b2a24');
+        btn(425, y, 85, 50, 'ban', 'mod:ban:' + r.id, false, '#6b2a24');
+        btn(520, y, 120, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
+        if (gameMode === 'monster') btn(650, y, 110, 50, 'monster', 'mod:monster:' + r.id);
       });
       btn(40, 452, 260, 52, 'clear bans', 'mod:clear');
       btn(320, 452, 260, 52, `ban list (${banEntries().length})`, 'mod:list');
     }
   } else if (watchTab === 'game') {
     text('mode', 40, 170, 26, 'rgba(255,255,255,.7)');
-    btn(40, 190, 230, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
-    btn(285, 190, 230, 72, 'brawl', 'mode:brawl', gameMode === 'brawl');
-    btn(530, 190, 230, 72, 'horror', 'mode:horror', gameMode === 'horror');
-    text(gameMode === 'brawl' ? 'punch people out of the boxing ring' : gameMode === 'horror' ? 'solve the puzzle, escape the dark' : 'hunt Ploops in the forest', 40, 292, 26, 'rgba(255,255,255,.75)');
+    btn(40, 190, 170, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
+    btn(225, 190, 170, 72, 'brawl', 'mode:brawl', gameMode === 'brawl');
+    btn(410, 190, 170, 72, 'horror', 'mode:horror', gameMode === 'horror');
+    btn(595, 190, 165, 72, 'monster', 'mode:monster', gameMode === 'monster');
+    text(gameMode === 'brawl' ? 'punch people out of the boxing ring' : gameMode === 'horror' ? 'solve the puzzle, escape the dark' : gameMode === 'monster' ? 'one monster, survive 3 minutes' : 'hunt Ploops in the forest', 40, 292, 26, 'rgba(255,255,255,.75)');
     text('weapon', 40, 340, 26, 'rgba(255,255,255,.7)');
-    if (gameMode === 'horror') text('no weapons. run and hide.', 40, 395, 30, '#ff8a8a', 'left', 700);
+    if (gameMode === 'monster') {
+      text(mnStatus(), 40, 395, 30, '#ff8a8a', 'left', 700);
+      if (isAdmin()) {
+        btn(40, 410, 230, 60, 'new round', 'mn:rand');
+        btn(285, 410, 230, 60, 'me monster', 'mn:me');
+      }
+    } else if (gameMode === 'horror') text('no weapons. run and hide.', 40, 395, 30, '#ff8a8a', 'left', 700);
     else if (gameMode === 'brawl') text('fists only in the ring', 40, 395, 30, '#ffde59', 'left', 700);
     else {
       btn(40, 360, 230, 70, 'blaster', 'weapon:gun', you.weapon === 'gun');
@@ -4243,7 +4648,9 @@ function watchAct(act) {
   else if (act === 'online') {
     onlineBox.checked = !onlineBox.checked;
     applyMenu();
-  } else if (act.startsWith('mode:')) requestMode(act.slice(5));
+  } else if (act === 'mn:rand') modAct('newround');
+  else if (act === 'mn:me') modAct('monster', 'me');
+  else if (act.startsWith('mode:')) requestMode(act.slice(5));
   else if (act.startsWith('weapon:')) setWeapon(act.slice(7));
   else if (act === 'respawn') respawn();
   else if (act.startsWith('mod:')) {
@@ -4549,6 +4956,7 @@ function snapshot() {
   return {
     t: 's', it: itKey(), u, md: gameMode, vb: vcList(),
     hz: gameMode === 'horror' ? [hx.lvl, hx.seq, hx.fuse, hx.code.length, hx.open, hx.done, hx.bad] : 0,
+    mm: gameMode === 'monster' ? mnTuple() : 0,
     mz: gameMode === 'horror' ? [r3(hxMon.pos.x), r3(hxMon.pos.z), r3(hxMon.yaw), hxMon.state] : 0,
     b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags, (b.arms[0] ? 1 : 0) | (b.arms[1] ? 2 : 0)])
   };
@@ -4566,7 +4974,7 @@ function kickPeer(id, ban) {
   removeRemote(id);
 }
 
-function hostMod(m) {
+function hostMod(m, from) {
   if (m.a === 'sync') {
     for (const k of ['bans', 'vc']) {
       const list = m.l && m.l[k];
@@ -4588,6 +4996,15 @@ function hostMod(m) {
     modLists.bans.clear();
     modLists.vc.clear();
     applyMute();
+    return;
+  }
+  if (m.a === 'newround') {
+    mnChoose('');
+    return;
+  }
+  if (m.a === 'monster') {
+    const to = m.to === 'me' ? (from || mnMe()) : m.to;
+    if (typeof to === 'string' && (to === mnMe() || remotes.has(to))) mnChoose(to);
     return;
   }
   const t = remotes.get(m.to);
@@ -4634,7 +5051,7 @@ function unlist(kind, pid) {
 function modAct(a, id, reason, mins) {
   if (!isAdmin()) return;
   const t = id ? remotes.get(id) : null;
-  if (a !== 'clear' && (!t || !t.pid || ADMINS.includes(t.pid))) return;
+  if (a !== 'clear' && a !== 'monster' && a !== 'newround' && (!t || !t.pid || ADMINS.includes(t.pid))) return;
   if (net.role === 'client') {
     if (a === 'ban') modLists.bans.set(t.pid, newEntry(reason, mins, t.name));
     else if (a === 'vc') {
@@ -4692,7 +5109,7 @@ function hostReceive(id, m) {
     b.thrower = r;
     b.thrownAt = performance.now();
   } else if (m.t === 'mod' && r && ADMINS.includes(r.pid) && typeof m.a === 'string') {
-    hostMod(m);
+    hostMod(m, id);
   } else if (m.t === 'arm' && r && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
     const msg = { t: 'arm', i: m.i, s: m.s };
@@ -4701,7 +5118,7 @@ function hostReceive(id, m) {
         try { c.send(msg); } catch (e) {}
       }
     }
-  } else if (m.t === 'grab' && r && typeof m.to === 'string' && okVec(m.p)) {
+  } else if (m.t === 'grab' && r && typeof m.to === 'string' && okVec(m.p) && (gameMode !== 'monster' || id === mn.mid)) {
     if (m.to === net.myId) applyGrab(m.p, id);
     else {
       const c = net.conns.get(m.to);
@@ -4711,9 +5128,11 @@ function hostReceive(id, m) {
     }
   } else if (m.t === 'hz' && gameMode === 'horror' && (m.k === 'b' || m.k === 'd') && Number.isInteger(m.v) && m.v >= 0 && m.v < 10) {
     hxPress(m.k, m.v);
-  } else if (m.t === 'mode' && r) {
+  } else if (m.t === 'mode' && r && ADMINS.includes(r.pid)) {
     setMode(m.md);
-  } else if (m.t === 'punch' && r && typeof m.to === 'string' && okVec(m.v)) {
+  } else if (m.t === 'mact' && r && gameMode === 'monster' && typeof m.to === 'string' && (m.a === 'arm' || m.a === 'pull' || m.a === 'head')) {
+    mnAct(id, m.a, m.to);
+  } else if (m.t === 'punch' && r && typeof m.to === 'string' && okVec(m.v) && (gameMode !== 'monster' || id === mn.mid)) {
     const v = new V().fromArray(m.v);
     if (v.length() > 15) v.setLength(15);
     if (m.to === net.myId) applyKnock(v, id);
@@ -4769,6 +5188,7 @@ function clientReceive(m) {
   if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
     if (m.md) setMode(m.md);
     if (m.md === 'horror' && Array.isArray(m.hz)) hxApply(m.hz, m.mz);
+    if (m.md === 'monster' && Array.isArray(m.mm)) mnApply(m.mm);
     if (Array.isArray(m.vb)) {
       vcBanned = new Map();
       for (const e of m.vb) if (Array.isArray(e) && typeof e[0] === 'string') vcBanned.set(e[0], { r: cleanReason(e[1]) || 'no reason given', u: +e[2] || 0 });
@@ -4826,7 +5246,20 @@ function clientReceive(m) {
   } else if (m.t === 'arm' && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
   } else if (m.t === 'cp' && okVec(m.p) && typeof m.c === 'string') {
-    if (gameMode === 'horror') hxStartPull(new V().fromArray(m.p), +m.y || 0, safeColor(m.c));
+    if (gameMode === 'horror' || gameMode === 'monster') hxStartPull(new V().fromArray(m.p), +m.y || 0, safeColor(m.c));
+  } else if (m.t === 'mhd' && okVec(m.p) && typeof m.c === 'string') {
+    if (gameMode === 'monster') mnHeadFx(new V().fromArray(m.p), safeColor(m.c));
+  } else if (m.t === 'marm' && okVec(m.p) && typeof m.to === 'string' && (m.s === 0 || m.s === 1)) {
+    if (gameMode === 'monster') {
+      const a = mn.arms.get(m.to) || [1, 1];
+      a[m.s] = 0;
+      mn.arms.set(m.to, a);
+      mnArmFx(new V().fromArray(m.p), m.s);
+      if (m.to === mnMe()) {
+        buzz(1, 300);
+        showBanner(a[0] || a[1] ? 'ARM RIPPED OFF' : 'NO ARMS LEFT', 2000);
+      }
+    }
   } else if (m.t === 'caught') {
     if (gameMode === 'horror') hxCaught();
   } else if (m.t === 'grab' && okVec(m.p) && typeof m.by === 'string') {
@@ -5075,7 +5508,7 @@ function refreshModBox() {
     const label = document.createElement('span');
     label.textContent = `${name} ${pid.slice(3)}`;
     row.append(label);
-    for (const [a, text] of [['kick', 'kick'], ['ban', 'ban'], ['vc', vc ? 'unmute' : 'vc ban']]) {
+    for (const [a, text] of [['kick', 'kick'], ['ban', 'ban'], ['vc', vc ? 'unmute' : 'vc ban'], ['monster', 'monster']]) {
       const b = document.createElement('button');
       b.className = 'alt';
       b.textContent = text;
@@ -5164,6 +5597,7 @@ renderer.setAnimationLoop(() => {
   updateKnives(dt);
   brawl(dt, now, playing);
   horrorTick(dt, now, playing);
+  monsterTick(dt, now, playing);
   sky.position.copy(camera.getWorldPosition(skyAt));
   if (banner.visible && now > bannerUntil) banner.visible = false;
   updatePools(dt);
@@ -5176,7 +5610,7 @@ renderer.setAnimationLoop(() => {
     if (renderer.xr.isPresenting) wristPaint.redraw();
   }
   if (mode === 'flat') {
-    const text = gameMode === 'brawl' ? `${you.kos || 0} KOs · click to punch` : `${you.kills} splats · ${you.weapon === 'saw' ? 'chainsaw' : you.weapon === 'knife' ? 'knives' : 'blaster'}`;
+    const text = gameMode === 'monster' ? `${mnStatus()} · ${iAmMonster() ? 'E grab, T arm, Q pull, F head' : 'run'}` : gameMode === 'brawl' ? `${you.kos || 0} KOs · click to punch` : `${you.kills} splats · ${you.weapon === 'saw' ? 'chainsaw' : you.weapon === 'knife' ? 'knives' : 'blaster'}`;
     if (text !== hudText) {
       hudText = text;
       hud.textContent = text;
