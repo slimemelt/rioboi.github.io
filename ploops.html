@@ -1001,6 +1001,7 @@ const modLists = { bans: new Map(), vc: new Map() };
 const tempKicks = new Map();
 const blockedRooms = new Map();
 let vcBanned = new Map();
+const BAN_EPOCH = 2;
 let banInfo = null;
 const PID_RE = /^PL-[0-9A-F]{8}$/;
 function cleanReason(r) {
@@ -1033,7 +1034,7 @@ function loadMod() {
   try {
     const d = JSON.parse(stored('ploops-mod') || '{}');
     for (const k of ['bans', 'vc']) {
-      if (!Array.isArray(d[k])) continue;
+      if (!Array.isArray(d[k]) || (k === 'bans' && d.e !== BAN_EPOCH)) continue;
       for (const [p, e] of d[k]) if (PID_RE.test(p) && e && typeof e.u === 'number') modLists[k].set(p, { r: cleanReason(e.r) || 'no reason given', u: e.u, n: typeof e.n === 'string' ? e.n.slice(0, 14) : '' });
     }
   } catch (e) {}
@@ -1042,6 +1043,7 @@ function saveMod() {
   if (!isAdmin()) return;
   const out = {};
   for (const k of ['bans', 'vc']) out[k] = [...modLists[k].keys()].filter(p => liveEntry(modLists[k], p)).map(p => [p, modLists[k].get(p)]);
+  out.e = BAN_EPOCH;
   store('ploops-mod', JSON.stringify(out));
 }
 function vcInfo(pid) {
@@ -1064,11 +1066,11 @@ function isBanned() {
 }
 function setBan(e) {
   banInfo = e;
-  store('ploops-ban', JSON.stringify(e));
+  store('ploops-ban', JSON.stringify({ ...e, e: BAN_EPOCH }));
 }
 try {
   const saved = JSON.parse(stored('ploops-ban') || 'null');
-  if (saved && typeof saved.u === 'number') banInfo = { r: cleanReason(saved.r) || 'no reason given', u: saved.u };
+  if (saved && typeof saved.u === 'number' && saved.e === BAN_EPOCH) banInfo = { r: cleanReason(saved.r) || 'no reason given', u: saved.u };
 } catch (e) {}
 let modDlg = null;
 let modView = null;
@@ -4637,6 +4639,14 @@ function modAct(a, id, reason, mins) {
 
 function hostReceive(id, m) {
   if (!m || typeof m !== 'object') return;
+  if (m.t === 'bq') {
+    const c = net.conns.get(id);
+    const e = typeof m.p === 'string' && PID_RE.test(m.p) ? liveEntry(modLists.bans, m.p) : null;
+    if (c && c.open) {
+      try { c.send(e ? { t: 'bq', ok: 0, r: e.r, u: e.u } : { t: 'bq', ok: 1 }); } catch (err) {}
+    }
+    return;
+  }
   let r = remotes.get(id);
   if (m.t === 'p') {
     if (!r) r = addRemote(id, cleanName(m.n) || 'Ploop', safeColor(m.c));
@@ -4983,6 +4993,42 @@ const modList = document.getElementById('modlist');
 const modDur = document.getElementById('moddur');
 const modReason = document.getElementById('modreason');
 const banScreen = document.getElementById('banned');
+let banProbing = false;
+function probeBan() {
+  if (banProbing || !isBanned() || typeof Peer === 'undefined') return;
+  banProbing = true;
+  const room = roomInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 16) || 'main';
+  const p = new Peer({ debug: 0 });
+  const done = () => {
+    banProbing = false;
+    try { p.destroy(); } catch (e) {}
+  };
+  const t = setTimeout(done, 8000);
+  p.on('error', () => { clearTimeout(t); done(); });
+  p.on('open', () => {
+    const c = p.connect('ploops-rioboi-' + room, { serialization: 'json' });
+    c.on('open', () => {
+      try { c.send({ t: 'bq', p: playerId }); } catch (e) {}
+    });
+    c.on('data', m => {
+      if (!m || m.t !== 'bq') return;
+      clearTimeout(t);
+      if (m.ok) {
+        banInfo = null;
+        store('ploops-ban', '');
+        netline.textContent = 'you were unbanned';
+      } else if (banInfo) {
+        banInfo.r = cleanReason(m.r) || banInfo.r;
+        banInfo.u = +m.u || 0;
+        store('ploops-ban', JSON.stringify({ ...banInfo, e: BAN_EPOCH }));
+      }
+      refreshBan();
+      done();
+    });
+  });
+}
+setInterval(probeBan, 15000);
+setTimeout(probeBan, 2500);
 function refreshBan() {
   const on = isBanned();
   banScreen.style.display = on ? 'flex' : 'none';
