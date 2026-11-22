@@ -805,9 +805,9 @@ const PID_RE = /^PL-[0-9A-F]{8}$/;
 function cleanReason(r) {
   return typeof r === 'string' ? r.replace(/[^\w .,!?'-]/g, '').slice(0, 40).trim() : '';
 }
-function newEntry(r, d) {
+function newEntry(r, d, n) {
   const mins = Number.isFinite(d) && d > 0 ? Math.min(d, 525600) : 0;
-  return { r: cleanReason(r) || 'no reason given', u: mins ? Date.now() + mins * 60000 : 0 };
+  return { r: cleanReason(r) || 'no reason given', u: mins ? Date.now() + mins * 60000 : 0, n: typeof n === 'string' ? n.slice(0, 14) : '' };
 }
 function liveEntry(map, pid) {
   const e = pid && map.get(pid);
@@ -833,7 +833,7 @@ function loadMod() {
     const d = JSON.parse(stored('ploops-mod') || '{}');
     for (const k of ['bans', 'vc']) {
       if (!Array.isArray(d[k])) continue;
-      for (const [p, e] of d[k]) if (PID_RE.test(p) && e && typeof e.u === 'number') modLists[k].set(p, { r: cleanReason(e.r) || 'no reason given', u: e.u });
+      for (const [p, e] of d[k]) if (PID_RE.test(p) && e && typeof e.u === 'number') modLists[k].set(p, { r: cleanReason(e.r) || 'no reason given', u: e.u, n: typeof e.n === 'string' ? e.n.slice(0, 14) : '' });
     }
   } catch (e) {}
 }
@@ -870,6 +870,8 @@ try {
   if (saved && typeof saved.u === 'number') banInfo = { r: cleanReason(saved.r) || 'no reason given', u: saved.u };
 } catch (e) {}
 let modDlg = null;
+let modView = null;
+let modPage = 0;
 let ragUntil = 0;
 let grabbed = null;
 function isRagged() {
@@ -3320,6 +3322,24 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
       btn(40, 384, 350, 52, custom ? modDlg.r.slice(0, 20) : 'type a reason', 'dlg:custom', custom);
       btn(410, 384, 170, 52, 'cancel', 'dlg:cancel', false, '#3a4a46');
       btn(590, 384, 170, 52, modDlg.a === 'ban' ? 'BAN' : 'VC BAN', 'dlg:ok', false, '#6b2a24');
+    } else if (modView === 'list') {
+      const all = banEntries();
+      const pages = Math.max(1, Math.ceil(all.length / 5));
+      modPage = Math.min(modPage, pages - 1);
+      text(`ban list (${all.length})`, 40, 176, 30, '#fff', 'left', 700);
+      if (!all.length) text('nobody is banned', 40, 230, 28, 'rgba(255,255,255,.75)');
+      all.slice(modPage * 5, modPage * 5 + 5).forEach((e, i) => {
+        const y = 190 + i * 52;
+        text(`${e.label === 'vc' ? '[vc] ' : ''}${e.n || e.pid.slice(3)}`, 40, y + 22, 24, '#fff', 'left', 700);
+        text(`${e.r.slice(0, 16)} · ${timeLeft(e.u)}`, 40, y + 44, 17, 'rgba(255,255,255,.65)');
+        text(e.pid.slice(3), 330, y + 30, 18, 'rgba(255,255,255,.5)');
+        btn(560, y, 200, 46, 'unban', 'unlist:' + e.kind + ':' + e.pid, false, '#6b2a24');
+      });
+      btn(40, 462, 150, 52, 'back', 'mod:back', false, '#3a4a46');
+      if (pages > 1) {
+        btn(210, 462, 120, 52, 'prev', 'mod:prev');
+        btn(340, 462, 120, 52, 'next', 'mod:next');
+      }
     } else {
       const list = [...remotes.values()].slice(0, 5);
       if (!list.length) text('nobody else is in this room', 40, 200, 28, 'rgba(255,255,255,.75)');
@@ -3332,6 +3352,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
         btn(620, y, 140, 50, vcBlocked(r.pid) ? 'unmute' : 'vc ban', 'mod:vc:' + r.id, vcBlocked(r.pid));
       });
       btn(40, 452, 260, 52, 'clear bans', 'mod:clear');
+      btn(320, 452, 260, 52, `ban list (${banEntries().length})`, 'mod:list');
     }
   } else if (watchTab === 'game') {
     text('mode', 40, 170, 26, 'rgba(255,255,255,.7)');
@@ -3443,9 +3464,18 @@ function watchAct(act) {
   else if (act.startsWith('mod:')) {
     const [, a, id] = act.split(':');
     const t = remotes.get(id);
-    if (a === 'ban' || (a === 'vc' && t && !vcBlocked(t.pid))) {
+    if (a === 'list') {
+      modView = 'list';
+      modPage = 0;
+    } else if (a === 'back') modView = null;
+    else if (a === 'next') modPage++;
+    else if (a === 'prev') modPage = Math.max(0, modPage - 1);
+    else if (a === 'ban' || (a === 'vc' && t && !vcBlocked(t.pid))) {
       if (t) modDlg = { a, id, name: t.name.slice(0, 12), d: 60, r: 'cheating' };
     } else modAct(a, id);
+  } else if (act.startsWith('unlist:')) {
+    const [, kind, pid] = act.split(':');
+    unlist(kind, pid);
   } else if (act.startsWith('dlg:')) {
     const [, k, v] = act.split(':');
     if (!modDlg) return;
@@ -3756,10 +3786,15 @@ function hostMod(m) {
       if (!Array.isArray(list)) continue;
       for (const e of list.slice(0, 200)) {
         if (Array.isArray(e) && typeof e[0] === 'string' && PID_RE.test(e[0]) && !ADMINS.includes(e[0]) && e[1] && typeof e[1].u === 'number') {
-          modLists[k].set(e[0], { r: cleanReason(e[1].r) || 'no reason given', u: e[1].u });
+          modLists[k].set(e[0], { r: cleanReason(e[1].r) || 'no reason given', u: e[1].u, n: typeof e[1].n === 'string' ? e[1].n.slice(0, 14) : '' });
         }
       }
     }
+    return;
+  }
+  if (m.a === 'unlist') {
+    if ((m.k === 'bans' || m.k === 'vc') && typeof m.p === 'string' && PID_RE.test(m.p)) modLists[m.k].delete(m.p);
+    applyMute();
     return;
   }
   if (m.a === 'clear') {
@@ -3772,14 +3807,41 @@ function hostMod(m) {
   if (!t || !t.pid || ADMINS.includes(t.pid)) return;
   if (m.a === 'vc') {
     if (liveEntry(modLists.vc, t.pid)) modLists.vc.delete(t.pid);
-    else modLists.vc.set(t.pid, newEntry(m.r, m.d));
+    else modLists.vc.set(t.pid, newEntry(m.r, m.d, t.name));
     applyMute();
   } else if (m.a === 'kick') kickPeer(t.id, null);
   else if (m.a === 'ban') {
-    const e = newEntry(m.r, m.d);
+    const e = newEntry(m.r, m.d, t.name);
     modLists.bans.set(t.pid, e);
     kickPeer(t.id, e);
   }
+}
+
+function banEntries() {
+  const out = [];
+  for (const [kind, label] of [['bans', 'ban'], ['vc', 'vc']]) {
+    for (const p of [...modLists[kind].keys()]) {
+      const e = liveEntry(modLists[kind], p);
+      if (e) out.push({ kind, label, pid: p, r: e.r, u: e.u, n: e.n || '' });
+    }
+  }
+  return out;
+}
+
+function unlist(kind, pid) {
+  if (!isAdmin() || !(kind === 'bans' || kind === 'vc') || !PID_RE.test(pid)) return;
+  if (net.role === 'client') {
+    modLists[kind].delete(pid);
+    saveMod();
+    if (net.host && net.host.open) {
+      try { net.host.send({ t: 'mod', a: 'unlist', k: kind, p: pid }); } catch (e) {}
+    }
+  } else {
+    hostMod({ a: 'unlist', k: kind, p: pid });
+    saveMod();
+  }
+  applyMute();
+  refreshModBox();
 }
 
 function modAct(a, id, reason, mins) {
@@ -3787,10 +3849,10 @@ function modAct(a, id, reason, mins) {
   const t = id ? remotes.get(id) : null;
   if (a !== 'clear' && (!t || !t.pid || ADMINS.includes(t.pid))) return;
   if (net.role === 'client') {
-    if (a === 'ban') modLists.bans.set(t.pid, newEntry(reason, mins));
+    if (a === 'ban') modLists.bans.set(t.pid, newEntry(reason, mins, t.name));
     else if (a === 'vc') {
       if (liveEntry(modLists.vc, t.pid)) modLists.vc.delete(t.pid);
-      else modLists.vc.set(t.pid, newEntry(reason, mins));
+      else modLists.vc.set(t.pid, newEntry(reason, mins, t.name));
     } else if (a === 'clear') {
       modLists.bans.clear();
       modLists.vc.clear();
@@ -4163,7 +4225,8 @@ function refreshModBox() {
   modBox.style.display = show ? 'block' : 'none';
   if (!show) return;
   const rows = [...remotes.values()].map(r => [r.id, r.name, r.pid || '', vcBlocked(r.pid)]);
-  const key = JSON.stringify(rows);
+  const entries = banEntries();
+  const key = JSON.stringify([rows, entries.map(e => [e.kind, e.pid, e.u])]);
   if (key === modKey) return;
   modKey = key;
   modList.textContent = '';
@@ -4182,6 +4245,24 @@ function refreshModBox() {
       b.addEventListener('click', () => modAct(a, id, modReason.value || 'no reason given', +modDur.value));
       row.append(b);
     }
+    modList.append(row);
+  }
+  const head = document.createElement('div');
+  head.style.cssText = 'margin-top:10px;font-weight:700';
+  head.textContent = `ban list (${entries.length})`;
+  modList.append(head);
+  if (!entries.length) modList.append('nobody is banned');
+  for (const e of entries) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center;margin:6px 0;font-size:14px';
+    const label = document.createElement('span');
+    label.textContent = `${e.label === 'vc' ? '[vc] ' : ''}${e.n || ''} ${e.pid.slice(3)} · ${e.r} · ${timeLeft(e.u)}`;
+    const b = document.createElement('button');
+    b.className = 'alt';
+    b.textContent = 'unban';
+    b.style.cssText = 'padding:4px 10px;font-size:13px';
+    b.addEventListener('click', () => unlist(e.kind, e.pid));
+    row.append(label, b);
     modList.append(row);
   }
   const clear = document.createElement('button');
