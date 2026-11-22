@@ -260,6 +260,7 @@ const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: t
 sky.renderOrder = -1;
 scene.add(sky);
 
+const paintQueue = [];
 const HZ_CS = 3;
 const HZ_H = 3.2;
 const hx = { lvl: 1, seq: 0, fuse: 0, code: '', open: 0, done: 0, bad: 0 };
@@ -724,7 +725,6 @@ function blip(freq, dur = 0.08, type = 'triangle', vol = 0.25, slide = 0.6) {
   o.stop(t + dur + 0.02);
 }
 
-const paintQueue = [];
 function textCanvas(w, h, paint) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
