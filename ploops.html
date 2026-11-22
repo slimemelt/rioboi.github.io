@@ -46,6 +46,7 @@ button:disabled{opacity:.45;cursor:default}
     <label><input type="checkbox" id="online" checked> online</label>
     <label><input type="checkbox" id="voice"> voice chat</label>
     <label><input type="checkbox" id="brawlBox"> brawl mode</label>
+    <label><input type="checkbox" id="horrorBox"> horror mode</label>
   </div>
   <div class="swatches" id="swatches">
   </div>
@@ -55,7 +56,7 @@ button:disabled{opacity:.45;cursor:default}
   </div>
   <ul class="how">
     <li><b>VR</b> — left stick to walk, hold left trigger to sprint, A to jump, right stick to turn. X opens your watch: name, color, room, mode, weapons and sound.</li>
-    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, M to switch between ploops and brawl, Esc to pause.</li>
+    <li><b>Desktop</b> — WASD to move, mouse to look, space to jump, M to switch between ploops and brawl, N for horror, E or click to press buttons, Esc to pause.</li>
     <li><b>Hands</b> — grip to grab a Ploop. Pull it apart with both hands to tear it open, hold it to your mouth to eat it, pull the trigger to squish it, or throw it at something. Desktop: E grab/throw, R rip, F bite, Q squish.</li>
     <li><b>Blaster</b> — right trigger in VR, click on desktop. Ploops pop. They come back.</li>
     <li><b>Chainsaw</b> — press B in VR to cycle blaster, chainsaw and knives. Rev the chainsaw with the trigger; for knives, squeeze the trigger and let go mid-swing to throw. Desktop: 1 blaster, 2 chainsaw, 3 knives.</li>
@@ -106,7 +107,8 @@ const scene = new THREE.Scene();
 const skyColor = new THREE.Color(0x9fd8f0);
 scene.background = skyColor;
 scene.fog = new THREE.Fog(skyColor, 28, 100);
-scene.add(new THREE.HemisphereLight(0xe6f7ff, 0x5b4a3a, 0.95));
+const hemi = new THREE.HemisphereLight(0xe6f7ff, 0x5b4a3a, 0.95);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0d2, 0.75);
 sun.position.set(8, 20, 6);
 scene.add(sun);
@@ -257,6 +259,205 @@ skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(skyColors, 3));
 const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
 sky.renderOrder = -1;
 scene.add(sky);
+
+const HZ_CS = 3;
+const HZ_H = 3.2;
+const hx = { lvl: 1, seq: 0, fuse: 0, code: '', open: 0, done: 0, bad: 0 };
+const HZ = [
+  {
+    o: new V(0, 0, -300), wall: 0x2e2e38, wall2: 0x26262f, floor: 0x16161b,
+    map: [
+      '###############',
+      '#S....#..2....#',
+      '#.....#.......#',
+      '#.....#.......#',
+      '###.#####.#####',
+      '#.............#',
+      '#......3......#',
+      '###.#####.#####',
+      '#..1..#.......#',
+      '#.....#...K...#',
+      '#.....#.......#',
+      '#.....#.......#',
+      '###########E###',
+      '###########X###',
+      '###############'
+    ]
+  },
+  {
+    o: new V(0, 0, -420), wall: 0x421212, wall2: 0x340c0c, floor: 0x1a0606,
+    map: [
+      '###################',
+      '#S.....#.....#..1.#',
+      '#......#..H..#....#',
+      '#......#.....#....#',
+      '###.######.#####.##',
+      '#.................#',
+      '#........4........#',
+      '###.#######.####.##',
+      '#..2...#.......#..#',
+      '#......#...F...#..#',
+      '#......#.......#.B#',
+      '#.....3#.......#..#',
+      '#......#...P...#..#',
+      '###E###############',
+      '###X###############',
+      '###################'
+    ]
+  }
+];
+const hxButtons = [];
+const hxLeds = [[], []];
+const hxScreens = [];
+const hxDoors = [];
+let hxFuse = null;
+function hxDoor(p, color) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(HZ_CS, HZ_H, HZ_CS), lambert(color));
+  m.position.set(p.x, HZ_H / 2, p.z);
+  scene.add(m);
+  const sol = { min: new V(p.x - HZ_CS / 2, 0, p.z - HZ_CS / 2), max: new V(p.x + HZ_CS / 2, HZ_H, p.z + HZ_CS / 2), pitch: 120 };
+  solids.push(sol);
+  return { m, sol };
+}
+HZ.forEach((L, li) => {
+  L.rows = L.map.length;
+  L.cols = L.map[0].length;
+  L.m = {};
+  L.cells = [];
+  L.at = (c, r) => new V(L.o.x + (c + 0.5) * HZ_CS, 0, L.o.z + (r + 0.5) * HZ_CS);
+  L.cell = p => ({ c: Math.floor((p.x - L.o.x) / HZ_CS), r: Math.floor((p.z - L.o.z) / HZ_CS) });
+  L.pass = (c, r) => {
+    const ch = L.map[r] && L.map[r][c];
+    return !!ch && ch !== '#' && ch !== 'E' && ch !== 'X';
+  };
+  const W = L.cols * HZ_CS, D = L.rows * HZ_CS;
+  box(L.o.x + W / 2, -0.5, L.o.z + D / 2, W, 1, D, L.floor, 190);
+  box(L.o.x + W / 2, HZ_H + 0.1, L.o.z + D / 2, W, 0.2, D, 0x08080a);
+  for (let r = 0; r < L.rows; r++) {
+    for (let c = 0; c < L.cols; c++) {
+      const ch = L.map[r][c];
+      const p = L.at(c, r);
+      if (ch === '#') {
+        let edge = false;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          const n = L.map[r + dr] && L.map[r + dr][c + dc];
+          if (n && n !== '#') edge = true;
+        }
+        if (edge) box(p.x, HZ_H / 2, p.z, HZ_CS, HZ_H, HZ_CS, (c + r) % 2 ? L.wall : L.wall2, 150);
+      } else {
+        if (ch !== '.') L.m[ch] = p;
+        if (L.pass(c, r)) L.cells.push([c, r]);
+      }
+    }
+  }
+  hxDoors.push(hxDoor(L.m.E, li ? 0x4a1a1a : 0x3a3326));
+  if (li === 1) {
+    for (let i = 0; i < 60; i++) {
+      const [c, r] = L.cells[Math.floor(rand() * L.cells.length)];
+      const p = L.at(c, r);
+      const s = 0.3 + rand() * 1.1;
+      box(p.x + (rand() - 0.5) * 2, 0.006, p.z + (rand() - 0.5) * 2, s, 0.01, s * (0.5 + rand() * 0.6), 0x520000);
+    }
+  }
+});
+function hxNote(L, key, lines, yaw) {
+  const p = L.m[key];
+  const t = textCanvas(512, 320, (x, w, h) => {
+    x.fillStyle = '#c9bd9a';
+    x.fillRect(0, 0, w, h);
+    x.fillStyle = '#2a1a10';
+    x.font = '700 58px Fredoka, sans-serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    lines.forEach((l, i) => x.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * 88));
+  });
+  const g = new THREE.Group();
+  g.position.set(p.x, 0, p.z);
+  g.rotation.y = yaw;
+  const mat = new THREE.MeshLambertMaterial({ map: t.tex });
+  const a = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.625), mat);
+  a.position.set(0, 1.45, 0.035);
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.625), mat);
+  b.position.set(0, 1.45, -0.035);
+  b.rotation.y = Math.PI;
+  g.add(a, b);
+  scene.add(g);
+  box(p.x, 0.7, p.z, 0.06, 1.4, 0.06, 0x3a2a1a);
+}
+function hxButton(lvl, kind, v, pos, color, label) {
+  const side = new THREE.MeshBasicMaterial({ color: 0x55555f });
+  let top;
+  if (label === undefined) top = new THREE.MeshBasicMaterial({ color });
+  else {
+    const t = textCanvas(64, 64, (x, w, h) => {
+      x.fillStyle = '#d8d8e0';
+      x.fillRect(0, 0, w, h);
+      x.fillStyle = '#15151a';
+      x.font = '700 46px Fredoka, sans-serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(label, w / 2, h / 2 + 2);
+    });
+    top = new THREE.MeshBasicMaterial({ map: t.tex });
+  }
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 16), [side, top, side]);
+  m.position.copy(pos);
+  scene.add(m);
+  hxButtons.push({ lvl, kind, v, pos: pos.clone(), m, last: 0 });
+}
+function hxLed(li, pos) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0x2a0d0d }));
+  m.position.copy(pos);
+  scene.add(m);
+  hxLeds[li].push(m);
+}
+function hxScreen(pos, paint) {
+  const t = textCanvas(512, 160, paint);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.375), new THREE.MeshBasicMaterial({ map: t.tex, side: THREE.DoubleSide }));
+  m.position.copy(pos);
+  scene.add(m);
+  hxScreens.push(t);
+}
+const hxScreenText = (x, w, h, text, color) => {
+  x.fillStyle = '#050a07';
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = color;
+  x.font = '700 64px Fredoka, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText(text, w / 2, h / 2 + 4);
+};
+{
+  const A = HZ[0], B = HZ[1];
+  hxNote(A, '1', ['FIRST', 'BLUE'], 0.3);
+  hxNote(A, '2', ['THEN', 'RED'], -0.4);
+  hxNote(A, '3', ['LAST', 'GREEN'], 0.2);
+  const K = A.m.K;
+  box(K.x, 0.5, K.z, 1.6, 1, 0.6, 0x1f1f26);
+  [0xdd2222, 0x22bb33, 0x2255ee, 0xeedd22].forEach((c, i) => hxButton(1, 'b', i, new V(K.x - 0.54 + i * 0.36, 1.03, K.z), c));
+  hxScreen(new V(K.x, 1.6, K.z - 0.3), (x, w, h) => hxScreenText(x, w, h, hx.open ? 'UNLOCKED' : `SEQUENCE ${hx.seq}/3`, hx.open ? '#5fff8a' : '#e8d85a'));
+  for (let i = 0; i < 3; i++) hxLed(0, new V(K.x - 0.25 + i * 0.25, 1.95, K.z - 0.3));
+  hxNote(B, '1', ['DIGIT I', '3 + 4'], 0.5);
+  hxNote(B, '2', ['DIGIT II', '9 - 2 - 5'], -0.3);
+  hxNote(B, '3', ['DIGIT III', '10 / 2'], 0.9);
+  hxNote(B, '4', ['DIGIT IV', 'I - 6'], 0.1);
+  hxNote(B, 'H', ['NO POWER', 'FIND THE FUSE'], 0);
+  const P = B.m.P;
+  box(P.x, 0.5, P.z, 1.5, 1, 0.8, 0x24141a);
+  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+  digits.forEach((d, i) => hxButton(2, 'd', +d, new V(P.x - 0.52 + (i % 5) * 0.26, 1.03, P.z - 0.18 + Math.floor(i / 5) * 0.3), 0, d));
+  hxScreen(new V(P.x, 1.6, P.z - 0.4), (x, w, h) => hxScreenText(x, w, h, hx.fuse < 2 ? 'NO POWER' : hx.open ? 'UNLOCKED' : hx.code.padEnd(4, '_').split('').join(' '), hx.fuse < 2 ? '#ff4a3a' : hx.open ? '#5fff8a' : '#e8d85a'));
+  for (let i = 0; i < 4; i++) hxLed(1, new V(P.x - 0.375 + i * 0.25, 1.95, P.z - 0.4));
+  const F = B.m.F;
+  box(F.x, 0.4, F.z, 0.4, 0.8, 0.4, 0x2a2a2a);
+  hxFuse = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.24), new THREE.MeshBasicMaterial({ color: 0xffd23a }));
+  hxFuse.position.set(F.x, 0.9, F.z);
+  scene.add(hxFuse);
+  const FB = B.m.B;
+  box(FB.x, 0.9, FB.z, 0.7, 1.4, 0.3, 0x2a2f2a);
+  hxLed(1, new V(FB.x, 1.45, FB.z - 0.17));
+}
+
 
 const dummy = new THREE.Object3D();
 const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -904,7 +1105,10 @@ function youPos(out) {
 }
 
 function respawn() {
-  if (gameMode === 'brawl') rig.position.set(RING.x + (Math.random() - 0.5) * 5, RING_TOP + 0.02, RING.z + (Math.random() - 0.5) * 5);
+  if (gameMode === 'horror') {
+    const S = HZ[hx.lvl - 1].m.S;
+    rig.position.set(S.x + (Math.random() - 0.5) * 3, 0.02, S.z + (Math.random() - 0.5) * 3);
+  } else if (gameMode === 'brawl') rig.position.set(RING.x + (Math.random() - 0.5) * 5, RING_TOP + 0.02, RING.z + (Math.random() - 0.5) * 5);
   else rig.position.copy(SPAWN).add(spawnJitter);
   rig.position.y -= drop;
   vel.set(0, 0, 0);
@@ -1768,6 +1972,10 @@ renderer.domElement.addEventListener('mousedown', e => {
       if (p && p.catch) p.catch(() => {});
     } catch (err) {}
   }
+  if (gameMode === 'horror') {
+    hxDeskPress();
+    return;
+  }
   if (gameMode === 'brawl') {
     deskPunch();
     return;
@@ -2168,7 +2376,11 @@ function placeHalf(m, at, fallback) {
 }
 
 function deskKey(code) {
-  if (code === 'KeyE' && gameMode === 'brawl') {
+  if (code === 'KeyE' && gameMode === 'horror') {
+    hxDeskPress();
+  } else if (code === 'KeyN') {
+    requestMode(gameMode === 'horror' ? 'ploops' : 'horror');
+  } else if (code === 'KeyE' && gameMode === 'brawl') {
     deskGrabKey();
   } else if (code === 'KeyT' && deskHold) {
     const side = deskHold.arms[0] ? 0 : deskHold.arms[1] ? 1 : -1;
@@ -2547,7 +2759,7 @@ function weapons(dt) {
     if (b && !swapWas && gameMode === 'ploops') swapWeapon();
     swapWas = b;
   }
-  if (gameMode === 'brawl') {
+  if (gameMode === 'brawl' || gameMode === 'horror') {
     gun.visible = false;
     saw.visible = false;
     heldKnife.visible = false;
@@ -2737,19 +2949,24 @@ function showBanner(text, ms = 1600) {
 }
 
 function setMode(md) {
-  if ((md !== 'ploops' && md !== 'brawl') || md === gameMode) return;
+  if ((md !== 'ploops' && md !== 'brawl' && md !== 'horror') || md === gameMode) return;
+  if (gameMode === 'horror') hxLeave();
   gameMode = md;
   brawlBox.checked = md === 'brawl';
+  horrorBox.checked = md === 'horror';
   koUntil = 0;
   lastHit = null;
-  respawn();
-  showBanner(md === 'brawl' ? 'BRAWL!' : 'PLOOPS');
+  if (md === 'horror') hxEnter();
+  else respawn();
+  showBanner(md === 'brawl' ? 'BRAWL!' : md === 'horror' ? 'ESCAPE' : 'PLOOPS');
   blip(md === 'brawl' ? 300 : 600, 0.25, 'square', 0.12, 1.5);
   board.redraw();
   wristPaint.redraw();
   watchPaint.redraw();
 }
 
+const horrorBox = document.getElementById('horrorBox');
+horrorBox.addEventListener('change', () => requestMode(horrorBox.checked ? 'horror' : 'ploops'));
 const brawlBox = document.getElementById('brawlBox');
 brawlBox.addEventListener('change', () => requestMode(brawlBox.checked ? 'brawl' : 'ploops'));
 
@@ -2886,6 +3103,552 @@ function brawl(dt, now, playing) {
       if (h.vis.distanceTo(r.head) < 0.3 || h.vis.distanceTo(tagBody) < 0.36) {
         punchCd.set(r.id, now);
         punch(r, h.velW.clone().multiplyScalar(1.6).add(new V(0, 2.5 + speed * 0.3, 0)), h);
+      }
+    }
+  }
+}
+
+const hxLight = new THREE.SpotLight(0xfff2d8, 1.6, 28, 0.6, 0.5, 1.2);
+hxLight.position.set(0, 0, 0);
+hxLight.target.position.set(0, 0, -5);
+camera.add(hxLight, hxLight.target);
+hxLight.visible = false;
+let hxActive = false;
+let hxCaughtAt = 0;
+let hxPull = null;
+const hxTmp = new V(), hxTmp2 = new V(), hxTmp3 = new V(), hxBest = new V();
+
+const hxMon = (() => {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshLambertMaterial({ color: 0x8fa89a });
+  const cloth = new THREE.MeshLambertMaterial({ color: 0x6b3b1e });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x15151a });
+  const white = new THREE.MeshBasicMaterial({ color: 0xf2f2e8 });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), cloth);
+  torso.scale.set(1, 1.2, 0.85);
+  torso.position.y = 1.05;
+  const head = new THREE.Group();
+  head.position.y = 2.15;
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.62, 18, 14), skin);
+  skull.scale.set(1.05, 0.95, 1);
+  head.add(skull);
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), eyeMat);
+    eye.position.set(0.22 * s, 0.16, 0.5);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), dark);
+    pupil.position.set(0, 0, 0.12);
+    eye.add(pupil);
+    head.add(eye);
+  }
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 6, 20, Math.PI), dark);
+  smile.rotation.z = Math.PI;
+  smile.position.set(0, -0.08, 0.5);
+  head.add(smile);
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI + Math.PI * (i + 0.5) / 7;
+    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.04), white);
+    tooth.position.set(Math.cos(a) * 0.3, -0.08 + Math.sin(a) * 0.3 + 0.05, 0.52);
+    head.add(tooth);
+  }
+  const arm = side => {
+    const pivot = new THREE.Group();
+    pivot.position.set(0.82 * side, 1.65, 0);
+    const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 1.5, 8), skin);
+    limb.position.y = -0.75;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), skin);
+    hand.position.y = -1.5;
+    pivot.add(limb, hand);
+    return pivot;
+  };
+  const armL = arm(-1), armR = arm(1);
+  const keys = new THREE.Group();
+  keys.position.set(0, -1.55, 0.1);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.018, 6, 14), new THREE.MeshBasicMaterial({ color: 0xc9ccd4 }));
+  keys.add(ring);
+  for (let i = 0; i < 4; i++) {
+    const k = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.24, 0.012), new THREE.MeshBasicMaterial({ color: 0xb8bcc6 }));
+    k.position.set((i - 1.5) * 0.05, -0.17, 0);
+    k.rotation.z = (i - 1.5) * 0.18;
+    keys.add(k);
+  }
+  armR.add(keys);
+  for (const s of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.17, 0.9, 8), cloth);
+    leg.position.set(0.3 * s, 0.45, 0);
+    g.add(leg);
+  }
+  g.add(torso, head, armL, armR);
+  g.visible = false;
+  scene.add(g);
+  return {
+    g, skin, cloth, eyeMat, head, armL, armR, keys,
+    pos: new V(), net: new V(), yaw: 0, netYaw: 0, state: 0, moved: 0, busyUntil: 0, alertUntil: 0, alertPos: new V(),
+    lostT: 0, goal: null, next: null, pathT: 0, lastSeen: new V(), stepT: 0, growlT: 2, catches: new Map()
+  };
+})();
+
+function hxBfs(L, a, b) {
+  const key = (c, r) => r * L.cols + c;
+  const prev = new Map([[key(a.c, a.r), null]]);
+  const q = [[a.c, a.r]];
+  while (q.length) {
+    const [c, r] = q.shift();
+    if (c === b.c && r === b.r) break;
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc, nr = r + dr;
+      if (!L.pass(nc, nr) || prev.has(key(nc, nr))) continue;
+      prev.set(key(nc, nr), [c, r]);
+      q.push([nc, nr]);
+    }
+  }
+  if (!prev.has(key(b.c, b.r))) return null;
+  let cur = [b.c, b.r], p;
+  while ((p = prev.get(key(cur[0], cur[1]))) && !(p[0] === a.c && p[1] === a.r)) cur = p;
+  return { c: cur[0], r: cur[1] };
+}
+
+function hxSees(eye, head, d) {
+  const n = Math.ceil(d / 0.5);
+  for (let i = 1; i < n; i++) {
+    hxTmp3.lerpVectors(eye, head, i / n);
+    if (solidAt(hxTmp3)) return false;
+  }
+  return true;
+}
+
+function hxAlert(p) {
+  hxMon.alertPos.copy(p);
+  hxMon.alertUntil = performance.now() + 14000;
+}
+
+function hxPress(kind, v) {
+  if (hx.open || hx.done) return;
+  const old = { ...hx };
+  const L = HZ[hx.lvl - 1];
+  if (hx.lvl === 1 && kind === 'b') {
+    const seq = [2, 0, 1];
+    if (v === seq[hx.seq]) {
+      hx.seq++;
+      if (hx.seq >= seq.length) hx.open = 1;
+    } else if (v < 4) {
+      hx.seq = 0;
+      hx.bad++;
+      hxAlert(L.m.K);
+    }
+  } else if (hx.lvl === 2 && kind === 'd' && hx.fuse === 2 && hx.code.length < 4) {
+    hx.code += v;
+    if (hx.code.length === 4) {
+      if (hx.code === '7251') hx.open = 1;
+      else {
+        hx.code = '';
+        hx.bad++;
+        hxAlert(L.m.P);
+      }
+    }
+  }
+  hxDiff(old);
+  hxVisuals();
+}
+
+function hxDiff(o) {
+  if (hx.bad > o.bad) {
+    blip(110, 0.45, 'sawtooth', 0.22, 0.5);
+    buzz(0.6, 150);
+  } else if (hx.seq > o.seq || hx.code.length > o.code.length) blip(880, 0.12, 'sine', 0.15, 1.4);
+  if (hx.open && !o.open) {
+    noiseBurst(1.2, 'lowpass', 220, 1.4);
+    blip(300, 0.6, 'sine', 0.15, 0.4);
+    showBanner('DOOR OPEN', 1800);
+  }
+  if (hx.fuse > o.fuse) blip(660, 0.2, 'triangle', 0.18, 1.5);
+  if (hx.done && !o.done) showBanner('YOU ESCAPED!', 4000);
+}
+
+function hxVisuals() {
+  hxDoors.forEach((d, i) => {
+    const open = hx.lvl > i + 1 || (hx.lvl === i + 1 && hx.open);
+    d.m.visible = !open;
+    d.sol.min.y = open ? -60 : 0;
+    d.sol.max.y = open ? -59 : HZ_H;
+  });
+  hxFuse.visible = hx.fuse === 0;
+  const lit = 0x66ff88;
+  hxLeds[0].forEach((m, i) => m.material.color.setHex(i < hx.seq || hx.open ? lit : 0x2a0d0d));
+  hxLeds[1].forEach((m, i) => m.material.color.setHex(i === 4 ? (hx.fuse === 2 ? lit : 0x2a0d0d) : i < hx.code.length || hx.open ? lit : 0x2a0d0d));
+  hxScreens.forEach(s => s.redraw());
+}
+
+function hxLook(l) {
+  const col = new THREE.Color(l === 1 ? 0x040406 : 0x1a0000);
+  scene.background = col;
+  scene.fog = new THREE.FogExp2(col, l === 1 ? 0.085 : 0.11);
+  hemi.intensity = l === 1 ? 0.06 : 0.1;
+  hemi.color.set(l === 1 ? 0x8899bb : 0xff3322);
+  hemi.groundColor.set(0x000000);
+  sun.intensity = 0;
+  sky.visible = false;
+  hxLight.visible = true;
+  hxLight.color.set(l === 1 ? 0xfff2d8 : 0xffcfc0);
+  hxMon.skin.color.setHex(l === 1 ? 0x8fa89a : 0xb01818);
+  hxMon.cloth.color.setHex(l === 1 ? 0x6b3b1e : 0x120404);
+  hxMon.eyeMat.color.setHex(l === 1 ? 0xffffff : 0xffdd22);
+  hxMon.g.scale.setScalar(l === 1 ? 1 : 1.2);
+}
+
+function hxUnlook() {
+  scene.background = skyColor;
+  scene.fog = new THREE.Fog(skyColor, 28, 100);
+  hemi.intensity = 0.95;
+  hemi.color.setHex(0xe6f7ff);
+  hemi.groundColor.setHex(0x5b4a3a);
+  sun.intensity = 0.75;
+  sky.visible = true;
+  hxLight.visible = false;
+}
+
+function hxSetLevel(l) {
+  hx.lvl = l;
+  hx.seq = 0;
+  hx.fuse = 0;
+  hx.code = '';
+  hx.open = 0;
+  hx.done = 0;
+  hx.bad = 0;
+  const L = HZ[l - 1];
+  const m = hxMon;
+  m.pos.copy(l === 1 ? L.at(11, 5) : L.at(14, 5));
+  m.net.copy(m.pos);
+  m.state = 0;
+  m.goal = null;
+  m.next = null;
+  m.busyUntil = 0;
+  m.alertUntil = 0;
+  m.catches.clear();
+  hxLook(l);
+  hxVisuals();
+  hxCaughtAt = 0;
+  respawn();
+}
+
+function hxEnter() {
+  hxActive = true;
+  hxMon.g.visible = true;
+  if (net.role === 'client') {
+    hxLook(hx.lvl);
+    hxVisuals();
+  } else hxSetLevel(1);
+}
+
+function hxLeave() {
+  if (!hxActive) return;
+  hxActive = false;
+  hxMon.g.visible = false;
+  hxUnlook();
+  if (hxPull) hxEndPull();
+}
+
+function hxApply(a, mz) {
+  const old = { ...hx };
+  if (a[0] !== hx.lvl) hxSetLevel(a[0]);
+  hx.seq = a[1] | 0;
+  hx.fuse = a[2] | 0;
+  hx.code = '*'.repeat(Math.max(0, Math.min(4, a[3] | 0)));
+  hx.open = a[4] | 0;
+  hx.done = a[5] | 0;
+  hx.bad = a[6] | 0;
+  const prev = { ...old, bad: Math.min(old.bad, hx.bad) };
+  hxDiff(prev);
+  hxVisuals();
+  if (Array.isArray(mz)) {
+    hxMon.net.set(mz[0], 0, mz[1]);
+    hxMon.netYaw = mz[2];
+    hxMon.state = mz[3] | 0;
+  }
+}
+
+function hxStartPull(at, yaw, css) {
+  const d = camera.getWorldPosition(hxTmp).distanceTo(at);
+  if (d > 32) {
+    scream(at);
+    return;
+  }
+  if (hxPull) hxEndPull();
+  const fake = { it: false, base: new THREE.Color(css), size: 1.5 };
+  const A = makeHalf(fake), B = makeHalf(fake);
+  A.position.copy(at);
+  B.position.copy(at);
+  startTether(A, B);
+  hxPull = { t: 0, A, B, at: at.clone(), side: new V(Math.cos(yaw), 0, -Math.sin(yaw)) };
+  scream(at);
+  crunch();
+}
+
+function hxEndPull() {
+  for (const m of [hxPull.A, hxPull.B]) {
+    scene.remove(m);
+    const c = fling(m, m.position.clone(), new V(), m.scale.x, 0.2, new V(0, -1, 0));
+    c.bleeds = true;
+    c.life = 14;
+  }
+  fountain(hxPull.at.clone(), 2.5);
+  hxPull = null;
+}
+
+function hxUpdatePull(dt) {
+  if (!hxPull) return;
+  const p = hxPull;
+  p.t += dt;
+  const ease = 1 - Math.pow(1 - Math.min(1, p.t / 1.8), 3);
+  const sp = 0.08 + ease * 0.8;
+  placeHalf(p.A, hxTmp.copy(p.at).addScaledVector(p.side, -sp), null);
+  placeHalf(p.B, hxTmp.copy(p.at).addScaledVector(p.side, sp), null);
+  if (Math.random() < 0.8) {
+    spray(p.A.position.clone(), new V(0, -1, 0), 2, 0.5);
+    spray(p.B.position.clone(), new V(0, -1, 0), 2, 0.5);
+  }
+  if (p.t > 3) hxEndPull();
+}
+
+function hxCaught() {
+  ragUntil = performance.now() + 3000;
+  hxCaughtAt = performance.now() + 2900;
+  showBanner('CAUGHT', 2400);
+  buzz(1, 400);
+}
+
+function hxCatch(h, now) {
+  const m = hxMon;
+  m.catches.set(h, now);
+  m.busyUntil = now + 3300;
+  m.state = 2;
+  humanHead(h, hxTmp);
+  m.yaw = Math.atan2(hxTmp.x - m.pos.x, hxTmp.z - m.pos.z);
+  const at = new V(m.pos.x + Math.sin(m.yaw) * 0.9, 1.5, m.pos.z + Math.cos(m.yaw) * 0.9);
+  const css = h === you ? you.css : h.css;
+  hxStartPull(at, m.yaw, css);
+  broadcast({ t: 'cp', p: ra(at), y: r3(m.yaw), c: css });
+  if (h === you) hxCaught();
+  else {
+    const c = net.conns.get(h.id);
+    if (c && c.open) {
+      try { c.send({ t: 'caught' }); } catch (e) {}
+    }
+  }
+}
+
+function hxStep(L, goal, speed, dt) {
+  const m = hxMon;
+  m.pathT -= dt;
+  if (m.pathT <= 0 || !m.next) {
+    m.pathT = 0.3;
+    const a = L.cell(m.pos), b = L.cell(goal);
+    if (a.c === b.c && a.r === b.r) m.next = goal.clone();
+    else {
+      const n = L.pass(b.c, b.r) ? hxBfs(L, a, b) : null;
+      if (!n) {
+        m.goal = null;
+        m.next = null;
+        return;
+      }
+      m.next = L.at(n.c, n.r);
+    }
+  }
+  const dx = m.next.x - m.pos.x, dz = m.next.z - m.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.25) {
+    m.pathT = 0;
+    return;
+  }
+  const step = Math.min(d, speed * dt);
+  m.pos.x += dx / d * step;
+  m.pos.z += dz / d * step;
+  m.moved = step;
+  const want = Math.atan2(dx, dz);
+  let turn = want - m.yaw;
+  turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+  m.yaw += turn * Math.min(1, dt * 7);
+}
+
+function hxSim(dt, now, playing, L) {
+  const m = hxMon;
+  const lv = hx.lvl;
+  const spd = lv === 1 ? [1.5, 3.0, 11] : [2.1, 4.2, 15];
+  m.moved = 0;
+  if (now < m.busyUntil) {
+    m.state = 2;
+    return;
+  }
+  hxTmp2.set(m.pos.x, 1.7, m.pos.z);
+  let best = null, bd = 1e9;
+  const people = humansInPlay(playing);
+  for (const h of people) {
+    humanHead(h, hxTmp);
+    const d = Math.hypot(hxTmp.x - m.pos.x, hxTmp.z - m.pos.z);
+    if (d < spd[2] && d < bd && hxSees(hxTmp2, hxTmp, d)) {
+      best = h;
+      bd = d;
+      hxBest.copy(hxTmp);
+    }
+  }
+  if (best) {
+    m.state = 1;
+    m.lostT = 0;
+    m.lastSeen.copy(hxBest);
+    m.goal = m.lastSeen.clone();
+  } else if (m.state === 1 && now >= m.alertUntil) {
+    m.lostT += dt;
+    if (m.lostT > 4 || Math.hypot(m.lastSeen.x - m.pos.x, m.lastSeen.z - m.pos.z) < 1) {
+      m.state = 0;
+      m.goal = null;
+    }
+  }
+  if (!best && now < m.alertUntil) {
+    m.state = 1;
+    m.goal = m.alertPos.clone();
+    if (Math.hypot(m.alertPos.x - m.pos.x, m.alertPos.z - m.pos.z) < 1.5) m.alertUntil = 0;
+  }
+  if (m.state === 0) {
+    if (!m.goal || Math.hypot(m.goal.x - m.pos.x, m.goal.z - m.pos.z) < 1) {
+      const [c, r] = L.cells[Math.floor(Math.random() * L.cells.length)];
+      m.goal = L.at(c, r);
+    }
+  }
+  if (m.goal) hxStep(L, m.goal, m.state === 1 ? spd[1] : spd[0], dt);
+  for (const h of people) {
+    humanHead(h, hxTmp);
+    if (Math.hypot(hxTmp.x - m.pos.x, hxTmp.z - m.pos.z) < 1.0 && now - (m.catches.get(h) || 0) > 6000 && hxTmp.y < 3) {
+      hxCatch(h, now);
+      break;
+    }
+  }
+}
+
+function hxAudio(dt, now) {
+  const m = hxMon;
+  const d = camera.getWorldPosition(hxTmp).distanceTo(m.g.position);
+  const vol = clamp(1.6 / (1 + d * 0.4), 0.03, 1);
+  const f = hx.lvl === 2 ? 0.5 : 1;
+  m.stepT -= dt;
+  if (m.moved > 0 || (net.role === 'client' && m.state !== 2)) {
+    if (m.stepT <= 0) {
+      m.stepT = m.state === 1 ? 0.2 : 0.42;
+      blip(2600 * f * (0.9 + Math.random() * 0.3), 0.06, 'triangle', 0.1 * vol, 0.7);
+      blip(3500 * f * (0.9 + Math.random() * 0.3), 0.05, 'triangle', 0.07 * vol, 0.7);
+    }
+  }
+  m.growlT -= dt;
+  if (m.state === 1 && m.growlT <= 0) {
+    m.growlT = 1.4 + Math.random() * 1.4;
+    blip(95 * f, 0.55, 'sawtooth', 0.28 * vol, 0.6);
+    noiseBurst(0.4, 'lowpass', 300 * f, 0.8 * vol);
+  }
+}
+
+function hxVisual(dt, now) {
+  const m = hxMon;
+  if (net.role === 'client') {
+    const k = 1 - Math.exp(-10 * dt);
+    m.moved = m.pos.distanceTo(m.net) * 0.5;
+    m.pos.lerp(m.net, k);
+    let turn = m.netYaw - m.yaw;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    m.yaw += turn * k;
+  }
+  const t = now / 1000;
+  const walk = t * (m.state === 1 ? 9 : 4.5);
+  const moving = m.moved > 0.001 && m.state !== 2;
+  m.g.position.set(m.pos.x, moving ? Math.abs(Math.sin(walk)) * 0.06 : 0, m.pos.z);
+  m.g.rotation.y = m.yaw;
+  if (m.state === 2) {
+    m.armL.rotation.x = -2.2;
+    m.armR.rotation.x = -2.2;
+  } else {
+    m.armL.rotation.x = moving ? Math.sin(walk) * 0.5 : 0.05;
+    m.armR.rotation.x = moving ? -Math.sin(walk) * 0.5 : 0.05;
+  }
+  m.head.rotation.z = Math.sin(t * 1.4) * 0.12;
+  m.keys.rotation.z = Math.sin(t * 9) * (moving ? 0.5 : 0.1);
+  if (hxLight.visible) {
+    const near = m.state === 1 && m.g.position.distanceTo(camera.getWorldPosition(hxTmp)) < 9;
+    hxLight.intensity = near && Math.random() < 0.25 ? 0.2 + Math.random() * 0.6 : 1.6;
+  }
+}
+
+function hxDeskPress() {
+  const cam = camera.getWorldPosition(new V());
+  const fwd = new V(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+  let best = null, bd = 0.14;
+  for (const b of hxButtons) {
+    if (b.lvl !== hx.lvl) continue;
+    const v = hxTmp.copy(b.pos).sub(cam);
+    const t = v.dot(fwd);
+    if (t < 0.3 || t > 3.2) continue;
+    const perp = v.addScaledVector(fwd, -t).length();
+    if (perp < bd) {
+      best = b;
+      bd = perp;
+    }
+  }
+  if (best) hxPressLocal(best, performance.now());
+}
+
+function hxPressLocal(b, now) {
+  b.last = now;
+  b.m.scale.setScalar(0.65);
+  setTimeout(() => b.m.scale.setScalar(1), 160);
+  blip(500 + b.v * 50, 0.07, 'square', 0.1, 1.2);
+  pulseAll(0.5, 40);
+  if (net.role === 'client') {
+    if (net.host && net.host.open) {
+      try { net.host.send({ t: 'hz', k: b.kind, v: b.v }); } catch (e) {}
+    }
+  } else hxPress(b.kind, b.v);
+}
+
+function pulseAll(s, ms) {
+  for (const h of hands) if (h.mesh.visible) pulse(h, s, ms);
+}
+
+function horrorTick(dt, now, playing) {
+  if (gameMode !== 'horror' || !hxActive) return;
+  const L = HZ[hx.lvl - 1];
+  if (hxCaughtAt && now > hxCaughtAt) {
+    hxCaughtAt = 0;
+    respawn();
+  }
+  hxUpdatePull(dt);
+  if (net.role !== 'client') {
+    hxSim(dt, now, playing, L);
+    for (const h of humansInPlay(playing)) {
+      humanFlat(h, hxTmp);
+      if (hx.lvl === 2 && !hx.done) {
+        const old = { ...hx };
+        if (hx.fuse === 0 && hxTmp.distanceTo(L.m.F) < 1.1) hx.fuse = 1;
+        if (hx.fuse === 1 && hxTmp.distanceTo(L.m.B) < 1.5) hx.fuse = 2;
+        if (hx.fuse !== old.fuse) {
+          hxDiff(old);
+          hxVisuals();
+        }
+      }
+      if (hx.open && !hx.done && hxTmp.distanceTo(L.m.X) < 1.8) {
+        if (hx.lvl === 1) hxSetLevel(2);
+        else {
+          hx.done = 1;
+          showBanner('YOU ESCAPED!', 4000);
+          setTimeout(() => { if (gameMode === 'horror') setMode('ploops'); }, 4500);
+        }
+        break;
+      }
+    }
+  }
+  hxVisual(dt, now);
+  hxAudio(dt, now);
+  if (renderer.xr.isPresenting && !isBanned()) {
+    for (const h of hands) {
+      if (!h.mesh.visible) continue;
+      for (const b of hxButtons) {
+        if (b.lvl === hx.lvl && now - b.last > 500 && h.vis.distanceTo(b.pos) < 0.12) hxPressLocal(b, now);
       }
     }
   }
@@ -3240,7 +4003,7 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
   x.beginPath();
   x.arc(w - 150, 44, 9, 0, Math.PI * 2);
   x.fill();
-  text(gameMode === 'brawl' ? 'brawl' : 'ploops', w - 175, 44, 24, 'rgba(255,255,255,.6)', 'right');
+  text(gameMode, w - 175, 44, 24, 'rgba(255,255,255,.6)', 'right');
 
   if (isBanned()) {
     x.fillStyle = '#3a0d0d';
@@ -3356,11 +4119,13 @@ const watchPaint = textCanvas(WW, WH, (x, w, h) => {
     }
   } else if (watchTab === 'game') {
     text('mode', 40, 170, 26, 'rgba(255,255,255,.7)');
-    btn(40, 190, 350, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
-    btn(410, 190, 350, 72, 'brawl', 'mode:brawl', gameMode === 'brawl');
-    text(gameMode === 'brawl' ? 'punch people out of the boxing ring' : 'hunt Ploops in the forest', 40, 292, 26, 'rgba(255,255,255,.75)');
+    btn(40, 190, 230, 72, 'ploops', 'mode:ploops', gameMode === 'ploops');
+    btn(285, 190, 230, 72, 'brawl', 'mode:brawl', gameMode === 'brawl');
+    btn(530, 190, 230, 72, 'horror', 'mode:horror', gameMode === 'horror');
+    text(gameMode === 'brawl' ? 'punch people out of the boxing ring' : gameMode === 'horror' ? 'solve the puzzle, escape the dark' : 'hunt Ploops in the forest', 40, 292, 26, 'rgba(255,255,255,.75)');
     text('weapon', 40, 340, 26, 'rgba(255,255,255,.7)');
-    if (gameMode === 'brawl') text('fists only in the ring', 40, 395, 30, '#ffde59', 'left', 700);
+    if (gameMode === 'horror') text('no weapons. run and hide.', 40, 395, 30, '#ff8a8a', 'left', 700);
+    else if (gameMode === 'brawl') text('fists only in the ring', 40, 395, 30, '#ffde59', 'left', 700);
     else {
       btn(40, 360, 230, 70, 'blaster', 'weapon:gun', you.weapon === 'gun');
       btn(285, 360, 230, 70, 'chainsaw', 'weapon:saw', you.weapon === 'saw');
@@ -3763,6 +4528,8 @@ function snapshot() {
   }
   return {
     t: 's', it: itKey(), u, md: gameMode, vb: vcList(),
+    hz: gameMode === 'horror' ? [hx.lvl, hx.seq, hx.fuse, hx.code.length, hx.open, hx.done, hx.bad] : 0,
+    mz: gameMode === 'horror' ? [r3(hxMon.pos.x), r3(hxMon.pos.z), r3(hxMon.yaw), hxMon.state] : 0,
     b: bots.map(b => [r3(b.pos.x), r3(b.pos.y), r3(b.pos.z), r3(b.g.rotation.y), b.alive ? 1 : 0, b.kills, b.tags, (b.arms[0] ? 1 : 0) | (b.arms[1] ? 2 : 0)])
   };
 }
@@ -3914,6 +4681,8 @@ function hostReceive(id, m) {
         try { c.send({ t: 'grab', p: m.p, by: id }); } catch (e) {}
       }
     }
+  } else if (m.t === 'hz' && gameMode === 'horror' && (m.k === 'b' || m.k === 'd') && Number.isInteger(m.v) && m.v >= 0 && m.v < 10) {
+    hxPress(m.k, m.v);
   } else if (m.t === 'mode' && r) {
     setMode(m.md);
   } else if (m.t === 'punch' && r && typeof m.to === 'string' && okVec(m.v)) {
@@ -3971,6 +4740,7 @@ function clientReceive(m) {
   if (!m || typeof m !== 'object') return;
   if (m.t === 's' && Array.isArray(m.b) && Array.isArray(m.u)) {
     if (m.md) setMode(m.md);
+    if (m.md === 'horror' && Array.isArray(m.hz)) hxApply(m.hz, m.mz);
     if (Array.isArray(m.vb)) {
       vcBanned = new Map();
       for (const e of m.vb) if (Array.isArray(e) && typeof e[0] === 'string') vcBanned.set(e[0], { r: cleanReason(e[1]) || 'no reason given', u: +e[2] || 0 });
@@ -4027,6 +4797,10 @@ function clientReceive(m) {
     refreshBan();
   } else if (m.t === 'arm' && bots[m.i] && bots[m.i].alive && (m.s === 0 || m.s === 1)) {
     ripArm(bots[m.i], m.s, null, true, false);
+  } else if (m.t === 'cp' && okVec(m.p) && typeof m.c === 'string') {
+    if (gameMode === 'horror') hxStartPull(new V().fromArray(m.p), +m.y || 0, safeColor(m.c));
+  } else if (m.t === 'caught') {
+    if (gameMode === 'horror') hxCaught();
   } else if (m.t === 'grab' && okVec(m.p) && typeof m.by === 'string') {
     applyGrab(m.p, m.by);
   } else if (m.t === 'knock' && okVec(m.v)) {
@@ -4325,6 +5099,7 @@ renderer.setAnimationLoop(() => {
   updateTracers(dt);
   updateKnives(dt);
   brawl(dt, now, playing);
+  horrorTick(dt, now, playing);
   sky.position.copy(camera.getWorldPosition(skyAt));
   if (banner.visible && now > bannerUntil) banner.visible = false;
   updatePools(dt);
